@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
@@ -57,7 +57,13 @@ class ClowderHub:
 
     async def async_start(self) -> None:
         jump = self.entry.options.get(CONF_MAX_WEIGHT_JUMP, DEFAULT_MAX_WEIGHT_JUMP)
-        self.tracker = Tracker.from_dict(await self._store.async_load() or {}, jump)
+        data = await self._store.async_load() or {}
+        try:
+            self.tracker = Tracker.from_dict(data, jump)
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as err:
+            _LOGGER.error("Stored data is damaged (%r); starting empty, copy kept", err)
+            await Store(self.hass, STORAGE_VERSION, f"{STORAGE_KEY}.damaged").async_save(data)
+            self.tracker = Tracker(jump)
         self._unsubs = [
             self.hass.bus.async_listen(EVENT_VISIT, self._on_visit),
             self.hass.bus.async_listen(EVENT_HELLO, self._on_hello),
@@ -108,6 +114,12 @@ class ClowderHub:
         """Tell the robot it may forget this record. Repeats are acknowledged too."""
         # The robot deletes the record when acknowledged, so it must be on disk first.
         await self._store.async_save(self.tracker.to_dict())
+        # A failed write is only logged, and one made while stopping is put off, so read back.
+        stopping = self.hass.state is CoreState.stopping
+        on_disk = ((await self._store.async_load() or {}).get("seen") or {}).get(rec.robot, [])
+        if stopping or not any(k[:3] == [rec.epoch, rec.id, True] for k in on_disk):
+            _LOGGER.warning("Visit %s is not on disk yet, not acknowledged", rec.key)
+            return
         service = f"{rec.node.replace('-', '_')}_clowder_ack"
         if not self.hass.services.has_service("esphome", service):
             # The robot resends until acknowledged, so a later copy gets through.

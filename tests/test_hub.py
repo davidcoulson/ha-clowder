@@ -1,7 +1,10 @@
 """Event handling, storage and acknowledgement."""
 
+from unittest.mock import AsyncMock
+
+from homeassistant.core import CoreState
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import async_mock_service
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
 from custom_components.clowder.const import DOMAIN, EVENT_HELLO, EVENT_VISIT
 
@@ -110,3 +113,39 @@ async def test_hello_with_odd_digits_does_not_raise(hass, hub, caplog):
     await fire(hass, EVENT_HELLO, {"cats": "²=Two,٣=Three,1=Ash"})
     assert list(hub.tracker.cats) == [1]
     assert "Traceback" not in caplog.text
+
+
+async def test_no_ack_when_the_save_did_not_reach_disk(hass, hub, hass_storage):
+    """Home Assistant logs a failed write instead of raising, so check what is on disk."""
+    calls = async_mock_service(hass, "esphome", ACK)
+    hub._store.async_save = AsyncMock()
+    await fire(hass, EVENT_VISIT, ev(waste="urine", final=1))
+    assert hub.tracker.cats[4].pee == 1
+    assert calls == []
+
+
+async def test_no_ack_while_stopping(hass, hub, hass_storage):
+    """Saves are put off until the final write when stopping; the robot resends after."""
+    calls = async_mock_service(hass, "esphome", ACK)
+    hass.set_state(CoreState.stopping)
+    await fire(hass, EVENT_VISIT, ev(waste="urine", final=1))
+    assert calls == []
+
+
+async def test_damaged_storage_starts_empty_and_keeps_a_copy(hass, hass_storage, caplog):
+    damaged = {"cats": {"4": {"nmae": "Luna"}}, "seen": {"R": [[1]]}}
+    hass_storage[DOMAIN] = {"version": 1, "minor_version": 1, "key": DOMAIN, "data": damaged}
+    entry = MockConfigEntry(domain=DOMAIN, title="Clowder", data={})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.tracker.cats == {}
+    assert hass_storage[f"{DOMAIN}.damaged"]["data"] == damaged
+    assert "damaged" in caplog.text
+
+
+async def test_real_clock_times_reach_the_tracker(hass, hub, freezer):
+    freezer.move_to("2026-11-24 12:00:00+00:00")
+    now = 1795521600
+    await fire(hass, EVENT_VISIT, ev(time=now - 60))
+    assert hub.tracker.cats[4].last_visit == now - 60

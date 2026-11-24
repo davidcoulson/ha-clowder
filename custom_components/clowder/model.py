@@ -13,6 +13,9 @@ from .const import DEDUPE_KEYS, MAX_SLOT, WINDOW_S
 _LOGGER = logging.getLogger(__name__)
 
 WASTE_VALUES = ("pending", "feces", "urine")
+# A robot's clock is believed only this far behind or ahead of Home Assistant's.
+CLOCK_BEHIND_S = 30 * 86400
+CLOCK_AHEAD_S = 300
 
 
 def _int(value: Any, default: int | None = None) -> int | None:
@@ -74,9 +77,9 @@ class VisitRecord:
         weight = _float(data.get("weight"))
         time = _int(data.get("time"), 0)
         age = _int(data.get("age"), -1)
-        if time > 0:
+        if time > 0 and received - CLOCK_BEHIND_S <= time <= received + CLOCK_AHEAD_S:
             when = float(time)
-        elif age >= 0:
+        elif 0 <= age <= CLOCK_BEHIND_S:
             when = received - age
         else:
             when = received
@@ -145,8 +148,8 @@ class Tracker:
     def __init__(self, max_weight_jump: float) -> None:
         self.max_weight_jump = max_weight_jump
         self.cats: dict[int, CatState] = {}
-        # robot -> {(epoch, id): waste already counted}, oldest first
-        self._seen: dict[str, dict[tuple[int, int], bool]] = {}
+        # robot -> {(epoch, id): (waste already counted, time of the first copy)}, oldest first
+        self._seen: dict[str, dict[tuple[int, int], tuple[bool, float | None]]] = {}
         # Rollup across all cats, unidentified visits included.
         self.recent: list[float] = []  # visit times, last 2 days
         self.unidentified = 0
@@ -174,9 +177,12 @@ class Tracker:
         seen = self._seen.setdefault(rec.robot, {})
         ident = (rec.epoch, rec.id)
         new_visit = ident not in seen
-        final_new = rec.final and not seen.get(ident, False)
+        counted, first = seen.get(ident, (False, None))
+        # Every copy of a visit gets the first copy's time: a later one may have no clock.
+        when = rec.when if first is None else first
+        final_new = rec.final and not counted
         if new_visit or final_new:
-            seen[ident] = rec.final
+            seen[ident] = (rec.final, when)
             while len(seen) > DEDUPE_KEYS:
                 del seen[next(iter(seen))]
 
@@ -187,10 +193,12 @@ class Tracker:
             return ApplyResult(0, new_visit, new_visit, True)
 
         cat = self.cats.setdefault(rec.slot, CatState(rec.slot, rec.name))
-        if rec.when < cat.reset_at:
+        if when < cat.reset_at:
             return ApplyResult(rec.slot, False, False, False)
 
         changed = False
+        # A visit delivered late must not replace what a newer visit set.
+        newest = cat.last_visit is None or when >= cat.last_visit
         if new_visit:
             changed = True
             cat.visits += 1
@@ -198,10 +206,10 @@ class Tracker:
             plausible = not math.isnan(rec.weight) and (
                 cat.weight is None or abs(rec.weight - cat.weight) <= self.max_weight_jump
             )
-            if plausible:
+            if plausible and newest:
                 cat.weight = rec.weight
             cat.log.append((rec.when, rec.weight if plausible else None))
-            if cat.last_visit is None or rec.when > cat.last_visit:
+            if newest:
                 cat.last_visit = rec.when
                 cat.last_robot = rec.robot
         if final_new and rec.waste == "feces":
@@ -210,7 +218,7 @@ class Tracker:
         elif final_new and rec.waste == "urine":
             cat.pee += 1
             changed = True
-        if rec.waste_weight is not None and rec.waste != "pending":
+        if rec.waste_weight is not None and rec.waste != "pending" and newest:
             attr = "poop_weight" if rec.waste == "feces" else "pee_weight"
             if getattr(cat, attr) != rec.waste_weight:
                 setattr(cat, attr, rec.waste_weight)
@@ -245,7 +253,7 @@ class Tracker:
                 for slot, c in self.cats.items()
             },
             "seen": {
-                robot: [[epoch, rec_id, counted] for (epoch, rec_id), counted in keys.items()]
+                robot: [[epoch, rec_id, *value] for (epoch, rec_id), value in keys.items()]
                 for robot, keys in self._seen.items()
             },
             "rollup": {
@@ -262,7 +270,9 @@ class Tracker:
             fields = {**c, "log": [(e[0], e[1]) for e in c.get("log", [])]}
             tracker.cats[int(slot)] = CatState(slot=int(slot), **fields)
         for robot, keys in data.get("seen", {}).items():
-            tracker._seen[robot] = {(k[0], k[1]): bool(k[2]) for k in keys}
+            tracker._seen[robot] = {
+                (k[0], k[1]): (bool(k[2]), k[3] if len(k) > 3 else None) for k in keys
+            }
         rollup = data.get("rollup", {})
         tracker.recent = list(rollup.get("recent", []))
         tracker.unidentified = rollup.get("unidentified", 0)

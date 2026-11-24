@@ -28,7 +28,9 @@ def ev(**kw):
     return base | {k: str(v) for k, v in kw.items()}
 
 
-def rec(received=T0 + 10, **kw):
+def rec(received=None, **kw):
+    if received is None:
+        received = int(kw.get("time", T0)) + 10
     r = VisitRecord.from_event(ev(**kw), received)
     assert r is not None
     return r
@@ -87,7 +89,6 @@ def test_nan_weight_counts_visit():
 def test_no_clock_uses_received_minus_age():
     assert rec(received=5000, time=0, age=60).when == 4940
     assert rec(received=5000, time=0, age=-1).when == 5000
-    assert rec(received=5000).when == T0
 
 
 def test_old_visit_counts_but_not_in_7d():
@@ -244,3 +245,48 @@ def test_rollup_survives_storage_and_forgets_old_visits():
     restored.apply(VisitRecord.from_event(ev(id=3, time=later), later), later)
     assert restored.recent == [later]
     assert Tracker.from_dict({}, 3.0).last is None
+
+
+def test_wrong_robot_clock_falls_back_to_age_then_arrival():
+    assert rec(received=T0 + 10).when == T0
+    assert rec(received=T0 + 10, time=T0 + 3600).when == T0 + 5  # clock ahead: use age
+    assert rec(received=T0 + 10, time=T0 - 40 * DAY).when == T0 + 5  # absurdly old
+    assert rec(received=T0 + 10, time=T0 + 3600, age=-1).when == T0 + 10
+    assert rec(received=T0 + 10, time=0, age=99 * DAY).when == T0 + 10
+    assert rec(received=T0 + 10, time=T0 - 2 * DAY).when == T0 - 2 * DAY  # queued while HA was down
+
+
+def test_final_after_reset_without_a_clock_counts_nothing():
+    t = Tracker(1.0)
+    t.apply(rec(time=0, age=5, received=T0), T0)
+    t.reset(4, T0 + 100)
+    r = t.apply(rec(time=0, age=-1, received=T0 + 200, waste="urine", final=1), T0 + 200)
+    c = t.cats[4]
+    assert (c.visits, c.pee, r.changed) == (0, 0, False)
+    # The first copy's time survives a restart.
+    t2 = Tracker.from_dict(t.to_dict(), 1.0)
+    t2.apply(rec(time=0, age=-1, received=T0 + 300, waste="urine", final=1), T0 + 300)
+    assert t2.cats[4].pee == 0
+
+
+def test_seen_from_0_2_0_storage_loads():
+    t = Tracker.from_dict({"seen": {"LR4C000001": [[7, 1, False]]}}, 1.0)
+    r = t.apply(rec(waste="urine", final=1), T0 + 200)
+    assert (r.new_visit, t.cats[4].pee) == (False, 1)
+
+
+def test_late_older_visit_does_not_replace_newer_weights():
+    t = Tracker(5.0)
+    t.apply(rec(robot="B", node="b", time=T0 + 50, weight="12.0"), T0 + 60)
+    t.apply(
+        rec(robot="B", node="b", time=T0 + 50, waste="urine", final=1, waste_weight="0.2"),
+        T0 + 61,
+    )
+    t.apply(rec(robot="A", node="a", time=T0 + 20, weight="10.0"), T0 + 70)
+    t.apply(
+        rec(robot="A", node="a", time=T0 + 20, waste="urine", final=1, waste_weight="0.1"),
+        T0 + 71,
+    )
+    c = t.cats[4]
+    assert (c.visits, c.pee, c.weight, c.pee_weight) == (2, 2, 12.0, 0.2)
+    assert c.avg_weight_7d(T0 + 80) == 11.0
