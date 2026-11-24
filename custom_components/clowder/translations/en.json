@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Clowder",
+        "description": "Clowder listens for visit events from litter robots running the esphome-litter-robot firmware and keeps one device per cat. There is nothing to configure."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Clowder is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "max_weight_jump": "Largest believable weight change (lb)"
+        },
+        "data_description": {
+          "max_weight_jump": "A visit weight further than this from the cat's current weight still counts as a visit but does not change the weight."
+        }
+      }
+    }
+  },
+  "issues": {
+    "name_conflict": {
+      "title": "Robots disagree on the name of cat {slot}",
+      "description": "Robot {robot} calls cat {slot} \"{other}\", but Clowder already knows it as \"{kept}\" and keeps that name. Make the cat list the same on every robot."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weight": {
+        "name": "Weight"
+      },
+      "average_weight_7d": {
+        "name": "Average weight (7d)"
+      },
+      "visits": {
+        "name": "Visits"
+      },
+      "visits_per_day_7d": {
+        "name": "Visits per day (7d)"
+      },
+      "hours_since_last_visit": {
+        "name": "Hours since last visit"
+      },
+      "poop_count": {
+        "name": "Poop count"
+      },
+      "pee_count": {
+        "name": "Pee count"
+      },
+      "poop_weight": {
+        "name": "Poop weight"
+      },
+      "pee_weight": {
+        "name": "Pee weight"
+      },
+      "last_robot": {
+        "name": "Last robot"
+      }
+    },
+    "number": {
+      "set_weight": {
+        "name": "Set weight"
+      }
+    },
+    "button": {
+      "tracker_reset": {
+        "name": "Tracker reset"
+      }
+    },
+    "event": {
+      "unidentified_visit": {
+        "name": "Unidentified visit",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unidentified_visit": "Unidentified visit"
+            }
+          }
+        }
+      }
+    }
+  }
+}
