@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -14,6 +14,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .hub import SIGNAL_NEW_CAT, SIGNAL_UPDATE, ClowderHub
 from .model import CatState
+
+HUB_DEVICE = DeviceInfo(
+    identifiers={(DOMAIN, "hub")},
+    name="Clowder",
+    manufacturer="Clowder",
+    entry_type=DeviceEntryType.SERVICE,
+)
 
 
 class ClowderCatEntity(Entity):

@@ -30,6 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 SIGNAL_NEW_CAT = "clowder_new_cat"  # payload: slot
 SIGNAL_UPDATE = "clowder_update"  # payload: slot
 SIGNAL_UNIDENTIFIED = "clowder_unidentified"  # payload: VisitRecord
+SIGNAL_ROLLUP = "clowder_rollup"  # no payload: a visit was counted
 SAVE_DELAY_S = 10
 
 
@@ -88,6 +89,8 @@ class ClowderHub:
             return
         known = rec.slot in self.tracker.cats
         result = self.tracker.apply(rec, now)
+        if result.new_visit:
+            async_dispatcher_send(self.hass, SIGNAL_ROLLUP)
         if result.unidentified:
             if result.new_visit:
                 async_dispatcher_send(self.hass, SIGNAL_UNIDENTIFIED, rec)

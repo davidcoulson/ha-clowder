@@ -59,6 +59,18 @@
       },
       "last_robot": {
         "name": "Last robot"
+      },
+      "last_cat": {
+        "name": "Last cat"
+      },
+      "last_visit": {
+        "name": "Last visit"
+      },
+      "visits_today": {
+        "name": "Visits today"
+      },
+      "unidentified_visits": {
+        "name": "Unidentified visits"
       }
     },
     "number": {

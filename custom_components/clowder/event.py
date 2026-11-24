@@ -7,11 +7,10 @@ from datetime import UTC, datetime
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .entity import HUB_DEVICE
 from .hub import SIGNAL_UNIDENTIFIED
 from .model import VisitRecord
 
@@ -30,12 +29,7 @@ class ClowderUnidentifiedVisit(EventEntity):
     _attr_translation_key = EVENT_TYPE
     _attr_unique_id = "clowder_unidentified_visit"
     _attr_event_types = [EVENT_TYPE]
-    _attr_device_info = DeviceInfo(
-        identifiers={(DOMAIN, "hub")},
-        name="Clowder",
-        manufacturer="Clowder",
-        entry_type=DeviceEntryType.SERVICE,
-    )
+    _attr_device_info = HUB_DEVICE
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

@@ -39,6 +39,11 @@ Plus one **Unidentified visit** event entity on the Clowder device. It fires whe
 could not match a visit to a cat, with `robot`, `weight`, `time` and `rssi` attributes, so
 you can trigger an automation on it or review the history later.
 
+The Clowder device also has four sensors across all cats: **Last cat** ("Unknown" for an
+unidentified visit), **Last visit** (timestamp, with the robot as an attribute), **Visits
+today** (unidentified visits included, back to 0 at local midnight) and **Unidentified
+visits** (running count).
+
 ## Option
 
 **Largest believable weight change** (default 3.0 lb): a visit weight further than this from

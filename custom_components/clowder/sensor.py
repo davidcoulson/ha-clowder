@@ -1,10 +1,11 @@
-"""Per-cat sensors."""
+"""Per-cat sensors, and the rollup sensors on the Clowder device."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,13 +16,14 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfMass, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .entity import ClowderCatEntity, setup_cat_platform
-from .hub import ClowderHub
-from .model import CatState
+from .entity import HUB_DEVICE, ClowderCatEntity, setup_cat_platform
+from .hub import SIGNAL_ROLLUP, ClowderHub
+from .model import CatState, Tracker
 
 REFRESH = timedelta(minutes=5)
 
@@ -83,6 +85,7 @@ async def async_setup_entry(
         async_add_entities,
         lambda hub, slot: [ClowderSensor(hub, slot, description) for description in SENSORS],
     )
+    async_add_entities(ClowderHubSensor(entry.runtime_data, key) for key in HUB_SENSORS)
 
 
 class ClowderSensor(ClowderCatEntity, SensorEntity):
@@ -103,4 +106,55 @@ class ClowderSensor(ClowderCatEntity, SensorEntity):
 
     @callback
     def _tick(self, now: datetime) -> None:
+        self.async_write_ha_state()
+
+
+def _last_visit(t: Tracker) -> datetime | None:
+    return datetime.fromtimestamp(t.last[0], UTC) if t.last else None
+
+
+# key -> (value, device class, state class)
+HUB_SENSORS: dict[str, tuple[Callable[[Tracker], Any], SensorDeviceClass | None, str | None]] = {
+    "last_cat": (lambda t: t.last[1] if t.last else None, None, None),
+    "last_visit": (_last_visit, SensorDeviceClass.TIMESTAMP, None),
+    "visits_today": (
+        lambda t: t.visits_since(dt_util.start_of_local_day().timestamp()),
+        None,
+        SensorStateClass.MEASUREMENT,
+    ),
+    "unidentified_visits": (lambda t: t.unidentified, None, SensorStateClass.TOTAL_INCREASING),
+}
+
+
+class ClowderHubSensor(SensorEntity):
+    """A rollup across all cats, on the Clowder device."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_device_info = HUB_DEVICE
+
+    def __init__(self, hub: ClowderHub, key: str) -> None:
+        self.hub = hub
+        self._value, self._attr_device_class, self._attr_state_class = HUB_SENSORS[key]
+        self._attr_translation_key = key
+        self._attr_unique_id = f"clowder_hub_{key}"
+
+    @property
+    def native_value(self) -> Any:
+        return self._value(self.hub.tracker)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        last = self.hub.tracker.last
+        if self._attr_translation_key != "last_visit" or last is None:
+            return None
+        return {"robot": last[2]}
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ROLLUP, self._refresh))
+        if self._attr_translation_key == "visits_today":  # falls back to 0 after midnight
+            self.async_on_remove(async_track_time_interval(self.hass, self._refresh, REFRESH))
+
+    @callback
+    def _refresh(self, now: datetime | None = None) -> None:
         self.async_write_ha_state()

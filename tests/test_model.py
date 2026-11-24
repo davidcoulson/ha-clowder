@@ -230,3 +230,17 @@ def test_roundtrip():
     assert t2.to_dict() == d
     assert t2.apply(rec(waste="feces", final=1), T0 + 500).changed is False
     assert Tracker.from_dict({}, 2.0).cats == {}
+
+
+def test_rollup_survives_storage_and_forgets_old_visits():
+    tracker = Tracker(3.0)
+    tracker.apply(VisitRecord.from_event(ev(), T0), T0)
+    tracker.apply(VisitRecord.from_event(ev(id=2, slot=0, name="Unknown"), T0), T0)
+    restored = Tracker.from_dict(tracker.to_dict(), 3.0)
+    assert restored.unidentified == 1
+    assert restored.last == (T0, "Unknown", "LR4C000001")
+    assert restored.visits_since(T0 - 60) == 2
+    later = T0 + 3 * 86400
+    restored.apply(VisitRecord.from_event(ev(id=3, time=later), later), later)
+    assert restored.recent == [later]
+    assert Tracker.from_dict({}, 3.0).last is None

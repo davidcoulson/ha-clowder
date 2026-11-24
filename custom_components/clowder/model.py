@@ -147,6 +147,18 @@ class Tracker:
         self.cats: dict[int, CatState] = {}
         # robot -> {(epoch, id): waste already counted}, oldest first
         self._seen: dict[str, dict[tuple[int, int], bool]] = {}
+        # Rollup across all cats, unidentified visits included.
+        self.recent: list[float] = []  # visit times, last 2 days
+        self.unidentified = 0
+        self.last: tuple[float, str, str] | None = None  # (time, cat name, robot)
+
+    def _roll(self, rec: VisitRecord, name: str, now: float) -> None:
+        self.recent = [t for t in self.recent if t > now - 2 * 86400] + [rec.when]
+        if self.last is None or rec.when >= self.last[0]:
+            self.last = (rec.when, name, rec.robot)
+
+    def visits_since(self, start: float) -> int:
+        return sum(1 for t in self.recent if t >= start)
 
     def hello(self, cats: dict[int, str]) -> list[int]:
         """Add unknown cats; return slots whose name differs from the stored one."""
@@ -169,6 +181,9 @@ class Tracker:
                 del seen[next(iter(seen))]
 
         if rec.slot == 0:
+            if new_visit:
+                self.unidentified += 1
+                self._roll(rec, "Unknown", now)
             return ApplyResult(0, new_visit, new_visit, True)
 
         cat = self.cats.setdefault(rec.slot, CatState(rec.slot, rec.name))
@@ -179,6 +194,7 @@ class Tracker:
         if new_visit:
             changed = True
             cat.visits += 1
+            self._roll(rec, cat.name, now)
             plausible = not math.isnan(rec.weight) and (
                 cat.weight is None or abs(rec.weight - cat.weight) <= self.max_weight_jump
             )
@@ -232,6 +248,11 @@ class Tracker:
                 robot: [[epoch, rec_id, counted] for (epoch, rec_id), counted in keys.items()]
                 for robot, keys in self._seen.items()
             },
+            "rollup": {
+                "recent": self.recent,
+                "unidentified": self.unidentified,
+                "last": list(self.last) if self.last else None,
+            },
         }
 
     @classmethod
@@ -242,4 +263,8 @@ class Tracker:
             tracker.cats[int(slot)] = CatState(slot=int(slot), **fields)
         for robot, keys in data.get("seen", {}).items():
             tracker._seen[robot] = {(k[0], k[1]): bool(k[2]) for k in keys}
+        rollup = data.get("rollup", {})
+        tracker.recent = list(rollup.get("recent", []))
+        tracker.unidentified = rollup.get("unidentified", 0)
+        tracker.last = tuple(rollup["last"]) if rollup.get("last") else None
         return tracker

@@ -31,12 +31,12 @@ async def test_hello_creates_six_devices_with_twelve_entities(hass, entry):
         assert device is not None and device.name == name
         assert len(er.async_entries_for_device(entities, device.id)) == 12
     hub_device = devices.async_get_device({(DOMAIN, "hub")})
-    assert len(er.async_entries_for_device(entities, hub_device.id)) == 1
+    assert len(er.async_entries_for_device(entities, hub_device.id)) == 5
     assert state(hass, "sensor.ash_visits") == "0"
     assert state(hass, "sensor.ash_weight") == "unknown"
     assert state(hass, "sensor.ash_hours_since_last_visit") == "unknown"
     await fire(hass, EVENT_HELLO, HELLO)  # a second hello adds nothing
-    assert len(er.async_entries_for_config_entry(entities, entry.entry_id)) == 73
+    assert len(er.async_entries_for_config_entry(entities, entry.entry_id)) == 77
 
 
 async def test_visit_updates_sensors(hass, entry):
@@ -115,3 +115,31 @@ async def test_entities_restored_after_reload(hass, entry):
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert state(hass, "sensor.luna_visits") == "1"
+
+
+async def test_rollup_sensors(hass, entry):
+    await fire(hass, EVENT_HELLO, HELLO)
+    assert state(hass, "sensor.clowder_last_cat") == "unknown"
+    assert state(hass, "sensor.clowder_last_visit") == "unknown"
+    assert state(hass, "sensor.clowder_visits_today") == "0"
+    assert state(hass, "sensor.clowder_unidentified_visits") == "0"
+    await fire(hass, EVENT_VISIT, ev())
+    await fire(hass, EVENT_VISIT, ev(waste="urine", final=1))  # same visit again
+    assert state(hass, "sensor.clowder_last_cat") == "Luna"
+    assert state(hass, "sensor.clowder_visits_today") == "1"
+    last = hass.states.get("sensor.clowder_last_visit")
+    assert last.state not in ("unknown", "unavailable")
+    assert last.attributes["robot"] == "LR4C000001"
+    await fire(hass, EVENT_VISIT, ev(id=2, slot=0, name="Unknown", method="None", age=0))
+    assert state(hass, "sensor.clowder_last_cat") == "Unknown"
+    assert state(hass, "sensor.clowder_visits_today") == "2"
+    assert state(hass, "sensor.clowder_unidentified_visits") == "1"
+
+
+async def test_late_record_from_another_day_is_not_today_or_last(hass, entry):
+    await fire(hass, EVENT_HELLO, HELLO)
+    await fire(hass, EVENT_VISIT, ev())
+    await fire(hass, EVENT_VISIT, ev(id=2, slot=1, name="Ash", age=30 * 3600))
+    assert state(hass, "sensor.ash_visits") == "1"
+    assert state(hass, "sensor.clowder_visits_today") == "1"
+    assert state(hass, "sensor.clowder_last_cat") == "Luna"
