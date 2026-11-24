@@ -1,91 +1,153 @@
-# Clowder
+<p align="center">
+  <img src="https://raw.githubusercontent.com/davidcoulson/ha-clowder/main/custom_components/clowder/brand/logo.png" alt="Clowder logo: a grey cat tangled up in a roll of paper tape" width="180">
+</p>
 
-A Home Assistant integration that keeps **one device per cat**, fed by visit events from
-Litter Robots running the [esphome-litter-robot](https://github.com/davidcoulson/esphome-litter-robot)
-firmware with its `clowder.yaml` package.
+<h1 align="center">Clowder</h1>
 
-Each robot works out which cat visited (by collar tag) and sends the visit to Home Assistant.
-Clowder adds the visits from every robot together, so a cat has one weight, one visit count
-and one history however many robots it uses.
+<p align="center"><em>A clowder is a group of cats. This is where yours check in.</em></p>
+
+Every Litter Robot in your house knows which cat just stopped by. The trouble is that each
+robot only knows its own half of the story, so a cat who uses two boxes ends up with two
+weights, two visit counts and two histories.
+
+Clowder gathers the visits from all of your robots into Home Assistant and gives each cat
+**one device**: one weight, one visit count and one history, whichever box they picked today.
+
+It is the Home Assistant half of the pair. The robot half is the
+[esphome-litter-robot](https://github.com/davidcoulson/esphome-litter-robot) firmware.
+
+## What you get
+
+- 🐾 **A device for every cat.** Weight, a 7-day average, visits, visits per day, hours since
+  the last visit, and poop and pee counts.
+- 🏠 **A view of the whole house.** Which cat went last, when, how many visits today, and how
+  many visits nobody could put a name to.
+- 🕵️ **Mystery visitors.** When a robot can't tell who it was, Clowder fires an
+  **Unidentified visit** event you can hang an automation on.
+- 📬 **Nothing goes missing.** Each robot keeps a visit until Clowder confirms it has it. If
+  Home Assistant is restarting or down for a while, the visits arrive when it is back and are
+  counted at the time they happened.
+- ⚖️ **No wild weight swings.** Two cats in the box at once, or one cat only half in? The visit
+  still counts, but a weight that far off doesn't change the cat's weight.
+- 🔌 **Local only.** No cloud, no account, no subscription.
+
+A few things people use it for: a nudge when a cat hasn't visited in a day, a weight chart that
+covers every box, or a heads-up when visits per day suddenly jump.
+
+## What you need
+
+- At least one **Litter Robot 4** running
+  [esphome-litter-robot](https://github.com/davidcoulson/esphome-litter-robot) with
+  **WasteSense** and the **Clowder package** (`packages/litter-robot4/clowder.yaml`). The
+  Litter Robot 3 isn't supported yet.
+- A robot config that tells the package which cat it was, for example from a collar tag. The
+  [Clowder guide](https://github.com/davidcoulson/esphome-litter-robot/blob/main/docs/Litter%20Robot%204/Clowder.md)
+  in the firmware repository walks through it.
+- Home Assistant 2025.1 or newer, and [HACS](https://hacs.xyz/).
 
 ## Install
 
 1. In HACS, add `https://github.com/davidcoulson/ha-clowder` as a custom repository
-   (type: integration) and install Clowder.
+   (type: integration) and install **Clowder**.
 2. Restart Home Assistant.
-3. Settings → Devices & services → Add integration → Clowder. There is nothing to fill in.
+3. Go to Settings → Devices & services → Add integration → **Clowder**. There's nothing to
+   fill in.
+4. Let each robot talk to Home Assistant: Settings → Devices & services → ESPHome → your robot
+   → Configure, and turn on **Allow the device to perform Home Assistant actions**. Without it,
+   no visits get through.
 
-Cat devices appear when a robot connects (it announces its cats) or when a cat first visits.
-Counts start from zero.
+Your cats appear as soon as a robot connects (it introduces its cats by name) or when a cat
+first visits. Counts start from zero; Clowder doesn't import history from the robots.
 
-## Entities
+## Meet your cat's device
 
-Per cat:
-
-| Entity | Notes |
+| Entity | What it tells you |
 |---|---|
-| Weight | latest believable visit weight (lb) |
-| Average weight (7d) | mean of believable weights in the last 7 days |
-| Visits | total since install or the last reset |
-| Visits per day (7d) | visits in the last 7 days ÷ 7 |
-| Hours since last visit | |
-| Poop count, Pee count | from the robot's WasteSense verdict |
-| Poop weight, Pee weight | only if a robot reports waste mass |
-| Last robot | serial of the robot of the latest visit |
-| Set weight | correct the cat's weight by hand |
-| Tracker reset | zero this cat's counts and history |
+| Weight | The latest believable weight (lb) |
+| Average weight (7d) | Average of the believable weights from the last 7 days |
+| Visits | Every visit since you installed Clowder or last reset this cat |
+| Visits per day (7d) | Visits in the last 7 days, divided by 7 |
+| Hours since last visit | How long it has been |
+| Poop count, Pee count | From each robot's WasteSense verdict |
+| Poop weight, Pee weight | Reserved for waste mass; the current firmware doesn't send it, so these stay empty |
+| Last robot | Serial number of the robot used last |
+| Set weight | Correct the cat's weight by hand |
+| Tracker reset | Start this cat over: counts and history back to zero |
 
-Plus one **Unidentified visit** event entity on the Clowder device. It fires when a robot
-could not match a visit to a cat, with `robot`, `weight`, `time` and `rssi` attributes, so
-you can trigger an automation on it or review the history later.
+The **Clowder** device covers the whole household:
 
-The Clowder device also has four sensors across all cats: **Last cat** ("Unknown" for an
-unidentified visit), **Last visit** (timestamp, with the robot as an attribute), **Visits
-today** (unidentified visits included, back to 0 at local midnight) and **Unidentified
-visits** (running count).
+| Entity | What it tells you |
+|---|---|
+| Last cat | Who went last ("Unknown" if the robot couldn't tell) |
+| Last visit | When, with the robot as an attribute |
+| Visits today | Every visit since local midnight, mystery visitors included |
+| Unidentified visits | Running count of visits nobody could put a name to, across all robots |
+| Unidentified visit (event) | Fires for each of those, with `robot`, `weight`, `time` and `rssi` |
 
-## Option
+## Tuning
 
-**Largest believable weight change** (default 3.0 lb): a visit weight further than this from
-the cat's current weight still counts as a visit, but does not change Weight or the average
-(for example when two cats are in the box, or a cat is half in).
+There is one setting, under Settings → Devices & services → Clowder → Configure:
 
-## How visits arrive
+**Largest believable weight change** (default 3.0 lb, from 0.1 to 10). A visit whose weight is
+further than this from the cat's current weight still counts as a visit, but doesn't change
+Weight or the 7-day average.
+
+## Good to know
+
+- **Cat names come from the robots.** Use the same names in the same order on every robot. If
+  two robots disagree about a cat's name, Clowder keeps the first one and raises a repair issue.
+- **Set weight and Tracker reset only change Clowder.** The robots keep their own records and
+  their own way of recognising each cat.
+- **Each robot also has its own Unidentified Visits sensor**, counting only that robot.
+  Clowder's sensor adds them all up.
+- **A robot holds up to 16 visits** that Clowder hasn't confirmed yet. If more pile up, the
+  oldest is dropped.
+- **No verdict, no poop or pee.** If WasteSense hasn't decided within 45 minutes, or the robot
+  restarts while it is deciding, the visit still counts but as neither.
+
+## Under the hood
+
+<details>
+<summary>How visits travel from the robot to Clowder</summary>
 
 Robots fire `esphome.clowder_visit` on the Home Assistant event bus. All values are strings.
 
 | Key | Example | Meaning |
 |---|---|---|
-| `node` | `litter-robot4-lr4c000001` | ESPHome device name |
+| `node` | `litter-robot4-a1b2c3` | ESPHome device name, MAC suffix included |
 | `robot` | `LR4C000001` | robot serial |
 | `epoch` | `1893411021` | random per queue lifetime, 1 to 2147483647 |
 | `id` | `17` | per-robot counter |
 | `slot` | `4` | 1 to 6; `0` = not identified |
 | `name` | `Luna` | `Unknown` for slot 0 |
-| `method` | `Tag` or `None` | |
+| `method` | `Tag` or `None` | `Tag` for any identified visit; not used by Clowder |
 | `rssi` | `-52` | strongest tag signal |
 | `weight` | `11.46` | lb |
 | `time` | `1795512000` | epoch seconds; `0` if the robot had no clock |
 | `age` | `12` | seconds since the visit; `-1` if unknown |
 | `waste` | `pending`, `feces`, `urine` | |
-| `waste_weight` | `` or `0.08` | lb; empty when absent |
+| `waste_weight` | `` | lb; always empty from the current firmware |
 | `final` | `0` or `1` | `1` once the verdict is in |
 
 A visit is sent as soon as the cat is weighed (`final: 0`), and again with the same `id` when
-the verdict is known (`final: 1`). Clowder counts each `(robot, epoch, id)` once, whatever
-the number of copies, and acknowledges every final copy by calling
-`esphome.<node with - as _>_clowder_ack` with `epoch` and `id`. The robot keeps a visit in
-flash and resends it until acknowledged, so visits made while Home Assistant is down are
-counted when it comes back, at the time they happened.
+the verdict is known (`final: 1`). Clowder counts each `(robot, epoch, id)` once, however many
+copies arrive, and acknowledges every final copy by calling
+`esphome.<node with - as _>_clowder_ack` with `epoch` and `id`. The robot keeps the visit in
+flash and resends it every minute and whenever Home Assistant connects, until it is
+acknowledged.
 
 Robots also fire `esphome.clowder_hello` when they connect (`node`, `robot`,
-`cats: "1=Ash,2=Bean,..."`). If two robots give a slot different names, Clowder keeps the
-first and raises a repair issue.
+`cats: "1=Ash,2=Bean,..."`), so the cat devices exist before the first visit.
 
-## Development
+</details>
+
+<details>
+<summary>Development</summary>
 
 ```bash
 pip install -r requirements_test.txt ruff
 pytest
 ruff check . && ruff format --check .
 ```
+
+</details>
