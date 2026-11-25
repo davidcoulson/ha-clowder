@@ -100,6 +100,9 @@ Weight or the 7-day average.
   their own way of recognising each cat.
 - **Each robot also has its own Unidentified Visits sensor**, counting only that robot.
   Clowder's sensor adds them all up.
+- **One trip is one visit.** A cat that steps out and back in, or tries the box next door,
+  within 5 minutes is still on the same visit: one visit and one poop or pee, with the latest
+  weight. Mystery visitors aren't merged.
 - **A robot holds up to 16 visits** that Clowder hasn't confirmed yet. If more pile up, the
   oldest is dropped.
 - **No verdict, no poop or pee.** If WasteSense hasn't decided within 45 minutes, or the robot

@@ -16,6 +16,8 @@ WASTE_VALUES = ("pending", "feces", "urine")
 # A robot's clock is believed only this far behind or ahead of Home Assistant's.
 CLOCK_BEHIND_S = 30 * 86400
 CLOCK_AHEAD_S = 300
+# A cat back on a robot within this long of its last visit is still on the same visit.
+MERGE_S = 300
 
 
 def _int(value: Any, default: int | None = None) -> int | None:
@@ -115,6 +117,10 @@ class CatState:
     last_visit: float | None = None
     last_robot: str | None = None
     reset_at: float = 0.0
+    # The visit in progress: first and last weight report, and the waste counted for it.
+    sit_start: float | None = None
+    sit_last: float | None = None
+    sit_waste: str | None = None
     # (visit time, plausible weight or None), last 7 days only
     log: list[tuple[float, float | None]] = field(default_factory=list)
 
@@ -155,8 +161,9 @@ class Tracker:
         self.unidentified = 0
         self.last: tuple[float, str, str] | None = None  # (time, cat name, robot)
 
-    def _roll(self, rec: VisitRecord, name: str, now: float) -> None:
-        self.recent = [t for t in self.recent if t > now - 2 * 86400] + [rec.when]
+    def _roll(self, rec: VisitRecord, name: str, now: float, count: bool = True) -> None:
+        if count:
+            self.recent = [t for t in self.recent if t > now - 2 * 86400] + [rec.when]
         if self.last is None or rec.when >= self.last[0]:
             self.last = (rec.when, name, rec.robot)
 
@@ -201,23 +208,44 @@ class Tracker:
         newest = cat.last_visit is None or when >= cat.last_visit
         if new_visit:
             changed = True
-            cat.visits += 1
-            self._roll(rec, cat.name, now)
+            # Stepping out and back in, or over to the next robot, sends a report each time.
+            merged = (
+                cat.sit_last is not None
+                and cat.sit_start - MERGE_S <= when <= cat.sit_last + MERGE_S
+            )
+            if merged:
+                cat.sit_start = min(cat.sit_start, when)
+                cat.sit_last = max(cat.sit_last, when)
+            elif newest:
+                cat.sit_start = cat.sit_last = when
+                cat.sit_waste = None
+            if not merged:
+                cat.visits += 1
+            self._roll(rec, cat.name, now, count=not merged)
             plausible = not math.isnan(rec.weight) and (
                 cat.weight is None or abs(rec.weight - cat.weight) <= self.max_weight_jump
             )
             if plausible and newest:
                 cat.weight = rec.weight
-            cat.log.append((rec.when, rec.weight if plausible else None))
+            if not merged:
+                cat.log.append((rec.when, rec.weight if plausible else None))
             if newest:
                 cat.last_visit = rec.when
                 cat.last_robot = rec.robot
-        if final_new and rec.waste == "feces":
-            cat.poop += 1
-            changed = True
-        elif final_new and rec.waste == "urine":
-            cat.pee += 1
-            changed = True
+        if final_new and rec.waste != "pending":
+            in_sit = cat.sit_last is not None and cat.sit_start <= when <= cat.sit_last
+            counted_as = cat.sit_waste if in_sit else None
+            # One result per visit. Feces wins: a robot calls an interrupted stop urine.
+            if counted_as is None or (counted_as, rec.waste) == ("urine", "feces"):
+                if counted_as:
+                    cat.pee -= 1
+                if rec.waste == "feces":
+                    cat.poop += 1
+                else:
+                    cat.pee += 1
+                if in_sit:
+                    cat.sit_waste = rec.waste
+                changed = True
         if rec.waste_weight is not None and rec.waste != "pending" and newest:
             attr = "poop_weight" if rec.waste == "feces" else "pee_weight"
             if getattr(cat, attr) != rec.waste_weight:
@@ -248,6 +276,9 @@ class Tracker:
                     "last_visit": c.last_visit,
                     "last_robot": c.last_robot,
                     "reset_at": c.reset_at,
+                    "sit_start": c.sit_start,
+                    "sit_last": c.sit_last,
+                    "sit_waste": c.sit_waste,
                     "log": [list(e) for e in c.log],
                 }
                 for slot, c in self.cats.items()

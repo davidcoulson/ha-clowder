@@ -71,10 +71,10 @@ def test_resend_of_final_changes_nothing():
 def test_implausible_weight_counts_visit_keeps_weight():
     t = Tracker(1.0)
     t.apply(rec(), T0 + 10)
-    t.apply(rec(id=2, weight="5.0", time=T0 + 100), T0 + 110)
+    t.apply(rec(id=2, weight="5.0", time=T0 + 3600), T0 + 3610)
     c = t.cats[4]
     assert (c.visits, c.weight) == (2, 11.46)
-    assert c.avg_weight_7d(T0 + 200) == 11.46
+    assert c.avg_weight_7d(T0 + 3700) == 11.46
 
 
 def test_nan_weight_counts_visit():
@@ -115,10 +115,10 @@ def test_7d_figures():
 
 def test_two_robots_last_robot_by_visit_time():
     t = Tracker(1.0)
-    t.apply(rec(robot="B", node="b", time=T0 + 50), T0 + 60)
-    t.apply(rec(robot="A", node="a", time=T0 + 20), T0 + 70)  # earlier visit, arrives later
+    t.apply(rec(robot="B", node="b", time=T0 + 3600), T0 + 3610)
+    t.apply(rec(robot="A", node="a", time=T0 + 20), T0 + 3620)  # earlier visit, arrives later
     c = t.cats[4]
-    assert (c.visits, c.last_robot, c.last_visit) == (2, "B", T0 + 50)
+    assert (c.visits, c.last_robot, c.last_visit) == (2, "B", T0 + 3600)
 
 
 def test_junk_event_returns_none():
@@ -203,11 +203,13 @@ def test_hello_creates_and_reports_conflicts():
 def test_dedupe_memory_keeps_64_per_robot():
     t = Tracker(1.0)
     for i in range(1, 66):
-        t.apply(rec(id=i, time=T0 + i), T0 + i)
-    t.apply(rec(robot="OTHER", node="o", time=T0 + 70), T0 + 70)
+        t.apply(rec(id=i, time=T0 + i * 600), T0 + i * 600)
+    t.apply(rec(robot="OTHER", node="o", time=T0 + 70), T0 + 66 * 600)
     assert t.cats[4].visits == 66
-    assert t.apply(rec(id=65, time=T0 + 65), T0 + 80).new_visit is False
-    assert t.apply(rec(id=1, time=T0 + 1), T0 + 90).new_visit is True  # forgotten: oldest of 65
+    assert t.apply(rec(id=65, time=T0 + 65 * 600), T0 + 67 * 600).new_visit is False
+    assert (
+        t.apply(rec(id=1, time=T0 + 600), T0 + 68 * 600).new_visit is True
+    )  # forgotten: oldest of 65
 
 
 def test_log_pruned_to_window():
@@ -277,16 +279,45 @@ def test_seen_from_0_2_0_storage_loads():
 
 def test_late_older_visit_does_not_replace_newer_weights():
     t = Tracker(5.0)
-    t.apply(rec(robot="B", node="b", time=T0 + 50, weight="12.0"), T0 + 60)
+    late = T0 + 3600
+    t.apply(rec(robot="B", node="b", time=late, weight="12.0"), late + 10)
     t.apply(
-        rec(robot="B", node="b", time=T0 + 50, waste="urine", final=1, waste_weight="0.2"),
-        T0 + 61,
+        rec(robot="B", node="b", time=late, waste="urine", final=1, waste_weight="0.2"),
+        late + 11,
     )
-    t.apply(rec(robot="A", node="a", time=T0 + 20, weight="10.0"), T0 + 70)
+    t.apply(rec(robot="A", node="a", time=T0 + 20, weight="10.0"), late + 20)
     t.apply(
         rec(robot="A", node="a", time=T0 + 20, waste="urine", final=1, waste_weight="0.1"),
-        T0 + 71,
+        late + 21,
     )
     c = t.cats[4]
     assert (c.visits, c.pee, c.weight, c.pee_weight) == (2, 2, 12.0, 0.2)
-    assert c.avg_weight_7d(T0 + 80) == 11.0
+    assert c.avg_weight_7d(late + 30) == 11.0
+
+
+def test_hopping_between_robots_is_one_visit():
+    # One cat, two robots, five weight reports in three minutes; each re-entry closed the
+    # stop before it as urine.
+    t = Tracker(3.0)
+    stops = [("B", 0, "11.55"), ("B", 80, "11.52"), ("A", 130, "11.59"), ("B", 147, "11.53")]
+    for i, (robot, at, weight) in enumerate(stops):
+        kw = {"robot": robot, "node": robot.lower(), "id": i + 1, "time": T0 + at}
+        r = t.apply(rec(weight=weight, **kw), T0 + at)
+        assert r.changed
+        t.apply(rec(weight=weight, waste="urine", final=1, **kw), T0 + at + 20)
+    c = t.cats[4]
+    assert (c.visits, c.pee, c.poop) == (1, 1, 0)
+    assert (c.weight, c.last_robot, c.last_visit) == (11.53, "B", T0 + 147)
+    assert (len(c.log), t.visits_since(T0 - 1)) == (1, 1)
+    assert t.last == (T0 + 147, "Luna", "B")
+    # The real verdict for the last stop replaces the urine the robots assumed.
+    t.apply(rec(robot="A", node="a", id=9, time=T0 + 171, waste="feces", final=1), T0 + 400)
+    assert (c.visits, c.pee, c.poop) == (1, 0, 1)
+    t.apply(rec(robot="A", node="a", id=10, time=T0 + 200, waste="urine", final=1), T0 + 410)
+    assert (c.visits, c.pee, c.poop) == (1, 0, 1)
+    # The merged visit survives a restart, and a visit after the gap is a new one.
+    t2 = Tracker.from_dict(t.to_dict(), 3.0)
+    t2.apply(rec(id=11, time=T0 + 250, waste="urine", final=1), T0 + 420)
+    t2.apply(rec(id=12, time=T0 + 250 + 301, waste="urine", final=1), T0 + 900)
+    c2 = t2.cats[4]
+    assert (c2.visits, c2.pee, c2.poop) == (2, 1, 1)
