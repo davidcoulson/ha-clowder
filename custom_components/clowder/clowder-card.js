@@ -321,9 +321,9 @@ ha-card[header] .body{padding-top:0}
 .drawers{display:flex;flex-direction:column;gap:8px;flex:1 1 150px}
 .drawers .bar{flex:none;margin-top:3px}
 .stacked{flex:1;flex-direction:column;flex-wrap:nowrap;align-items:stretch;justify-content:space-evenly}
-.stacked .cats{flex:none}
-.stacked .cat{max-width:76px}
-.stacked .ring{max-width:72px}
+.stacked .cats{flex:1 1 0;min-height:0;align-items:stretch}
+.stacked .cat{max-width:none;min-height:0}
+.stacked .ring{flex:1 1 0;min-height:0;width:auto;max-width:100%;max-height:88px;aspect-ratio:1}
 .stacked .ring span{font-size:15px}
 .stacked .s{font-size:14px;line-height:20px}
 .stacked .drawers{flex:none;flex-direction:row;gap:24px}
