@@ -337,8 +337,9 @@ if (typeof customElements !== "undefined") {
     customElements.define(
       tag,
       class extends HTMLElement {
+        // Named _config so card-mod finds it and `card_mod:` styles work.
         setConfig(config) {
-          this._cfg = config || {};
+          this._config = config || {};
           this._html = null;
           if (this._hass) this.hass = this._hass;
         }
@@ -346,7 +347,7 @@ if (typeof customElements !== "undefined") {
         set hass(hass) {
           this._hass = hass;
           if (!hass.entities) return;
-          const html = render(collect(hass, this._cfg), this._cfg || {});
+          const html = render(collect(hass, this._config), this._config || {});
           if (html === this._html) return; // most state changes do not touch these cards
           this._html = html;
           (this.shadowRoot || this.attachShadow({ mode: "open" })).innerHTML = `<style>${CSS}</style>${html}`;
