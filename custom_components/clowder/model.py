@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -121,15 +122,19 @@ class CatState:
     reset_at: float = 0.0
     # Recent visits, oldest first: [first weight report, last one, waste counted or None].
     sits: list[list] = field(default_factory=list)
-    # (visit time, plausible weight or None), last 7 days only
-    log: list[tuple[float, float | None]] = field(default_factory=list)
+    # (visit time, plausible weight or None, robot or None), last 7 days only
+    log: list[tuple[float, float | None, str | None]] = field(default_factory=list)
 
-    def _recent(self, now: float) -> list[tuple[float, float | None]]:
+    def _recent(self, now: float) -> list[tuple[float, float | None, str | None]]:
         return [e for e in self.log if now - WINDOW_S < e[0] <= now]
 
     def avg_weight_7d(self, now: float) -> float | None:
-        weights = [w for _, w in self._recent(now) if w is not None]
+        weights = [e[1] for e in self._recent(now) if e[1] is not None]
         return sum(weights) / len(weights) if weights else None
+
+    def robots_7d(self, now: float) -> dict[str, int]:
+        """Visits per robot. Visits logged before 0.3.0 have no robot and are left out."""
+        return dict(Counter(e[2] for e in self._recent(now) if e[2]))
 
     def visits_per_day_7d(self, now: float) -> float:
         return len(self._recent(now)) / 7
@@ -224,7 +229,7 @@ class Tracker:
             if plausible and newest:
                 cat.weight = rec.weight
             if not merged:
-                cat.log.append((rec.when, rec.weight if plausible else None))
+                cat.log.append((rec.when, rec.weight if plausible else None, rec.robot))
             if newest:
                 cat.last_visit = rec.when
                 cat.last_robot = rec.robot
@@ -292,7 +297,10 @@ class Tracker:
     def from_dict(cls, data: dict, max_weight_jump: float) -> Tracker:
         tracker = cls(max_weight_jump)
         for slot, c in data.get("cats", {}).items():
-            fields = {**c, "log": [(e[0], e[1]) for e in c.get("log", [])]}
+            fields = {
+                **c,
+                "log": [(e[0], e[1], e[2] if len(e) > 2 else None) for e in c.get("log", [])],
+            }
             # 0.2.2 stored only the visit in progress.
             old = [fields.pop(k, None) for k in ("sit_start", "sit_last", "sit_waste")]
             fields["sits"] = [list(s) for s in c.get("sits", [])] or (

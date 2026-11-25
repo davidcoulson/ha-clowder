@@ -84,6 +84,32 @@ The **Clowder** device covers the whole household:
 | Unidentified visits | Running count of visits nobody could put a name to, across all robots |
 | Unidentified visit (event) | Fires for each of those, with `robot`, `weight`, `time` and `rssi` |
 
+## Dashboard cards
+
+Clowder comes with four cards. There is nothing to install: add a card to a dashboard and
+search for "Clowder", or use the type in YAML. They find your cats and litter robots on
+their own.
+
+| Card | Shows |
+| --- | --- |
+| `custom:clowder-robots-card` | Each robot: status, drawer and litter level, days until the drawer is full, filter and odor |
+| `custom:clowder-attention-card` | Only what needs you: a full drawer, low litter, a robot offline, a cat that has not visited, a weight change |
+| `custom:clowder-strip-card` | Compact, for a wall panel: a ring per cat that fills as time since the last visit runs on, and a bar per drawer |
+| `custom:clowder-share-card` | Which cats used each robot in the last 7 days, with drawer and litter level |
+
+Options, all optional:
+
+```yaml
+type: custom:clowder-strip-card
+title: Cats
+overdue_hours: 18        # when a cat counts as overdue; default is three of its usual gaps, 12 to 36 hours
+names:                   # a robot is named after its area unless you name it here, by serial
+  LR4C000001: Basement left
+```
+
+A robot is any device with a "waste drawer level" sensor. Readings a robot does not have
+are left out.
+
 ## Tuning
 
 There is one setting, under Settings → Devices & services → Clowder → Configure:

@@ -51,6 +51,8 @@ async def test_visit_updates_sensors(hass, entry):
     assert state(hass, "sensor.luna_weight") == "11.46"
     assert state(hass, "sensor.luna_average_weight_7d") == "11.46"
     assert state(hass, "sensor.luna_visits_per_day_7d") == "0.1"
+    robots = hass.states.get("sensor.luna_visits_per_day_7d").attributes["robots"]
+    assert robots == {"LR4C000001": 1}
     assert state(hass, "sensor.luna_pee_weight") == "0.05"
     assert state(hass, "sensor.luna_poop_weight") == "unknown"
     assert state(hass, "sensor.luna_last_robot") == "LR4C000001"
@@ -143,3 +145,16 @@ async def test_late_record_from_another_day_is_not_today_or_last(hass, entry):
     assert state(hass, "sensor.ash_visits") == "1"
     assert state(hass, "sensor.clowder_visits_today") == "1"
     assert state(hass, "sensor.clowder_last_cat") == "Luna"
+
+
+async def test_cards_are_served_and_loaded(hass, entry, hass_client):
+    from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
+
+    urls = [u for u in hass.data[DATA_EXTRA_MODULE_URL].urls if u.startswith("/clowder/")]
+    assert len(urls) == 1
+    resp = await (await hass_client()).get(urls[0])
+    assert resp.status == 200
+    assert "clowder-strip-card" in await resp.text()
+    # Reloading must not register the file or the script a second time.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert len([u for u in hass.data[DATA_EXTRA_MODULE_URL].urls if "/clowder/" in u]) == 1

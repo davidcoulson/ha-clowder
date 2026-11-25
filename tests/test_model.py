@@ -357,3 +357,15 @@ def test_visit_in_progress_from_0_2_2_storage_loads():
     assert (t2.cats[4].visits, t2.cats[4].pee) == (1, 1)
     del cat["sit_start"], cat["sit_last"], cat["sit_waste"]
     assert Tracker.from_dict(data, 3.0).cats[4].sits == []
+
+
+def test_visits_per_robot_and_logs_from_before_0_3_0():
+    t = Tracker(3.0)
+    for rec_id, hour, robot in ((1, 0, "LR4C000001"), (2, 1, "LR4C000002"), (3, 2, "LR4C000001")):
+        when = T0 + hour * 3600
+        t.apply(VisitRecord.from_event(ev(id=rec_id, time=when, robot=robot), when), when)
+    assert t.cats[4].robots_7d(T0 + 7200) == {"LR4C000001": 2, "LR4C000002": 1}
+    data = t.to_dict()
+    data["cats"]["4"]["log"] = [e[:2] for e in data["cats"]["4"]["log"]]
+    old = Tracker.from_dict(data, 3.0).cats[4]
+    assert (old.robots_7d(T0 + 7200), old.visits_per_day_7d(T0 + 7200) > 0) == ({}, True)

@@ -99,6 +99,13 @@ class ClowderSensor(ClowderCatEntity, SensorEntity):
     def native_value(self) -> float | int | str | None:
         return self.entity_description.value_fn(self.cat, dt_util.utcnow().timestamp())
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.key != "visits_per_day_7d":
+            return None
+        # The share card reads this to draw who uses which robot.
+        return {"robots": self.cat.robots_7d(dt_util.utcnow().timestamp())}
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         if self.entity_description.time_based:
