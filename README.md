@@ -107,7 +107,11 @@ names:                   # a robot is named after its area unless you name it he
   LR4C000001: Basement left
 robots:                  # show only these robots, by serial; default is all of them
   - LR4C000001
+layout: stacked          # strip only: cats on top, robots side by side below, spread over the card's height
 ```
+
+The cards work with [card-mod](https://github.com/thomasloven/lovelace-card-mod), so a
+`card_mod:` style can give the strip a set height or match the cards around it.
 
 A robot is any device with a "waste drawer level" sensor. Readings a robot does not have
 are left out.

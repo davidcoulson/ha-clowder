@@ -85,6 +85,8 @@ assert.match(card.renderStrip(m, {}), /class="late">19 h/);
 assert.match(card.renderStrip(m, {}), /title="Basement 1">Cat inside · Ash 19 h ago</);
 assert.match(card.renderStrip(m, {}), /title="Basement 2">Ready</);
 assert.match(card.renderStrip(m, {}), /title="Bedroom">Offline</);
+assert.match(card.renderStrip(m, { layout: "stacked" }), /class="strip stacked"/);
+assert.match(card.renderStrip({ ...m, robots: [{ ...r2, status: "Unknown (0x2C0)" }] }, {}), /title="Basement 2">Basement 2</);
 assert.match(card.renderShare(m, {}), /3 visits in 7 days/);
 assert.match(card.renderAttention(nothing, {}), /Nothing needs attention/);
 console.log("card tests passed");

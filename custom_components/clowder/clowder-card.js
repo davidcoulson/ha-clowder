@@ -255,7 +255,9 @@ const RING = 2 * Math.PI * 22;
 function stripState(r) {
   if (r.offline) return "Offline";
   const last = r.last ? `${r.last.name} ${fmtAge(r.last.hours)} ago` : null;
-  return [r.occupied ? "Cat inside" : r.fault || r.status, last].filter(Boolean).join(" · ") || r.label;
+  // Raw codes the firmware has no name for ("Unknown (0x2C0)") mean nothing on a wall panel.
+  const status = r.status && r.status.startsWith("Unknown") ? null : r.status;
+  return [r.occupied ? "Cat inside" : r.fault || status, last].filter(Boolean).join(" · ") || r.label;
 }
 
 function renderStrip(m, cfg) {
@@ -269,7 +271,7 @@ function renderStrip(m, cfg) {
   const drawers = m.robots
     .map((r) => `<div><div class="row"><span class="s grow name" title="${esc(r.label)}">${esc(stripState(r))}</span><span class="v">${r.offline ? "offline" : pct(r.drawer)}</span></div><div class="bar" role="img" aria-label="${esc(r.label)} drawer ${pct(r.drawer)}"><i style="width:${r.drawer || 0}%;background:${drawerColor(r.drawer || 0)}"></i></div></div>`)
     .join("");
-  return card(cfg, `<div class="strip"><div class="cats">${rings || empty("No cats yet.")}</div><div class="drawers">${drawers || empty("No litter robots found.")}</div></div>`);
+  return card(cfg, `<div class="strip${cfg.layout === "stacked" ? " stacked" : ""}"><div class="cats">${rings || empty("No cats yet.")}</div><div class="drawers">${drawers || empty("No litter robots found.")}</div></div>`);
 }
 
 function renderShare(m, cfg) {
@@ -290,7 +292,8 @@ function renderShare(m, cfg) {
 
 const CSS = `
 :host{display:block}
-.body{padding:12px;display:flex;flex-direction:column;gap:12px;color:var(--primary-text-color)}
+ha-card{display:flex;flex-direction:column}
+.body{flex:1;padding:12px;display:flex;flex-direction:column;gap:12px;color:var(--primary-text-color)}
 ha-card[header] .body{padding-top:0}
 .row{display:flex;align-items:center;gap:12px}
 .grow{flex:1;min-width:0}
@@ -317,6 +320,14 @@ ha-card[header] .body{padding-top:0}
 .ring .late{color:var(--error-color,#db4437)}
 .drawers{display:flex;flex-direction:column;gap:8px;flex:1 1 150px}
 .drawers .bar{flex:none;margin-top:3px}
+.stacked{flex:1;flex-direction:column;flex-wrap:nowrap;align-items:stretch;justify-content:space-evenly}
+.stacked .cats{flex:none}
+.stacked .cat{max-width:76px}
+.stacked .ring{max-width:72px}
+.stacked .ring span{font-size:15px}
+.stacked .s{font-size:14px;line-height:20px}
+.stacked .drawers{flex:none;flex-direction:row;gap:24px}
+.stacked .drawers>div{flex:1;min-width:0}
 .legend{display:flex;flex-wrap:wrap;gap:12px}
 .key{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--secondary-text-color)}
 .key i{width:10px;height:10px;border-radius:3px}
