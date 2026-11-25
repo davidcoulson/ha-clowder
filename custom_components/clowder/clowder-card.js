@@ -361,7 +361,20 @@ if (typeof customElements !== "undefined") {
           const html = render(collect(hass, this._config), this._config || {});
           if (html === this._html) return; // most state changes do not touch these cards
           this._html = html;
-          (this.shadowRoot || this.attachShadow({ mode: "open" })).innerHTML = `<style>${CSS}</style>${html}`;
+          const root = this.shadowRoot || this.attachShadow({ mode: "open" });
+          const t = document.createElement("template");
+          t.innerHTML = html;
+          const fresh = t.content.querySelector("ha-card");
+          const old = root.querySelector("ha-card");
+          if (!old) {
+            root.innerHTML = `<style>${CSS}</style>`;
+            root.append(fresh);
+            return;
+          }
+          // Keep the ha-card itself: card-mod styles the first one and would lose a replacement.
+          if (fresh.hasAttribute("header")) old.setAttribute("header", fresh.getAttribute("header"));
+          else old.removeAttribute("header");
+          old.querySelector(".body").replaceWith(fresh.querySelector(".body"));
         }
 
         getCardSize() {
