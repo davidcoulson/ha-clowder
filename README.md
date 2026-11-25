@@ -94,7 +94,7 @@ their own.
 | --- | --- |
 | `custom:clowder-robots-card` | Each robot: status, drawer and litter level, days until the drawer is full, filter and odor |
 | `custom:clowder-attention-card` | Only what needs you: a full drawer, low litter, a robot offline, a cat that has not visited, a weight change |
-| `custom:clowder-strip-card` | Compact, for a wall panel: a ring per cat that fills as time since the last visit runs on, and a bar per drawer |
+| `custom:clowder-strip-card` | Compact, for a wall panel: a ring per cat that fills as time since the last visit runs on, and per robot its status, the last cat in it and a drawer bar |
 | `custom:clowder-share-card` | Which cats used each robot in the last 7 days, with drawer and litter level |
 
 Options, all optional:

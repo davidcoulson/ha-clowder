@@ -82,6 +82,9 @@ for (const render of [card.renderRobots, card.renderAttention, card.renderStrip,
 }
 assert.match(card.renderRobots(m, {}), /Cat inside · Ready/);
 assert.match(card.renderStrip(m, {}), /class="late">19 h/);
+assert.match(card.renderStrip(m, {}), /title="Basement 1">Cat inside · Ash 19 h ago</);
+assert.match(card.renderStrip(m, {}), /title="Basement 2">Ready</);
+assert.match(card.renderStrip(m, {}), /title="Bedroom">Offline</);
 assert.match(card.renderShare(m, {}), /3 visits in 7 days/);
 assert.match(card.renderAttention(nothing, {}), /Nothing needs attention/);
 console.log("card tests passed");

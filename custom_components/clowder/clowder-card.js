@@ -113,6 +113,7 @@ function collect(hass, cfg = {}) {
       avg: num(st("average_weight_7d")),
       perDay: num(perDay) || 0,
       hours: num(st("hours_since_last_visit")),
+      lastRobot: txt(st("last_robot")),
       robots: (perDay && perDay.attributes && perDay.attributes.robots) || {},
     };
   });
@@ -148,6 +149,8 @@ function collect(hass, cfg = {}) {
         .filter((k) => (st(k) || {}).state === "on")
         .map((k) => FLAGS[k]),
       share,
+      // The cat that used this robot most recently.
+      last: cats.filter((c) => c.hours != null && c.lastRobot && device.includes(c.lastRobot.toUpperCase())).sort((a, b) => a.hours - b.hours)[0] || null,
       visits: share.reduce((sum, c) => sum + c.n, 0),
     };
   });
@@ -248,6 +251,13 @@ function renderAttention(m, cfg) {
 
 const RING = 2 * Math.PI * 22;
 
+// The strip has no room for a name and a state, so it says what the robot is doing and who was last in it.
+function stripState(r) {
+  if (r.offline) return "Offline";
+  const last = r.last ? `${r.last.name} ${fmtAge(r.last.hours)} ago` : null;
+  return [r.occupied ? "Cat inside" : r.fault || r.status, last].filter(Boolean).join(" · ") || r.label;
+}
+
 function renderStrip(m, cfg) {
   const rings = m.cats
     .map((c) => {
@@ -257,7 +267,7 @@ function renderStrip(m, cfg) {
     })
     .join("");
   const drawers = m.robots
-    .map((r) => `<div><div class="row"><span class="s grow name">${esc(r.label)}</span><span class="v">${r.offline ? "offline" : pct(r.drawer)}</span></div><div class="bar" role="img" aria-label="${esc(r.label)} drawer ${pct(r.drawer)}"><i style="width:${r.drawer || 0}%;background:${drawerColor(r.drawer || 0)}"></i></div></div>`)
+    .map((r) => `<div><div class="row"><span class="s grow name" title="${esc(r.label)}">${esc(stripState(r))}</span><span class="v">${r.offline ? "offline" : pct(r.drawer)}</span></div><div class="bar" role="img" aria-label="${esc(r.label)} drawer ${pct(r.drawer)}"><i style="width:${r.drawer || 0}%;background:${drawerColor(r.drawer || 0)}"></i></div></div>`)
     .join("");
   return card(cfg, `<div class="strip"><div class="cats">${rings || empty("No cats yet.")}</div><div class="drawers">${drawers || empty("No litter robots found.")}</div></div>`);
 }
