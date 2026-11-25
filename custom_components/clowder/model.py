@@ -18,6 +18,8 @@ CLOCK_BEHIND_S = 30 * 86400
 CLOCK_AHEAD_S = 300
 # A cat back on a robot within this long of its last visit is still on the same visit.
 MERGE_S = 300
+# Visits remembered per cat, so a late report or verdict still finds the visit it belongs to.
+SITS_KEPT = 16
 
 
 def _int(value: Any, default: int | None = None) -> int | None:
@@ -117,10 +119,8 @@ class CatState:
     last_visit: float | None = None
     last_robot: str | None = None
     reset_at: float = 0.0
-    # The visit in progress: first and last weight report, and the waste counted for it.
-    sit_start: float | None = None
-    sit_last: float | None = None
-    sit_waste: str | None = None
+    # Recent visits, oldest first: [first weight report, last one, waste counted or None].
+    sits: list[list] = field(default_factory=list)
     # (visit time, plausible weight or None), last 7 days only
     log: list[tuple[float, float | None]] = field(default_factory=list)
 
@@ -209,17 +209,13 @@ class Tracker:
         if new_visit:
             changed = True
             # Stepping out and back in, or over to the next robot, sends a report each time.
-            merged = (
-                cat.sit_last is not None
-                and cat.sit_start - MERGE_S <= when <= cat.sit_last + MERGE_S
-            )
+            sit = next((s for s in cat.sits if s[0] - MERGE_S <= when <= s[1] + MERGE_S), None)
+            merged = sit is not None
             if merged:
-                cat.sit_start = min(cat.sit_start, when)
-                cat.sit_last = max(cat.sit_last, when)
-            elif newest:
-                cat.sit_start = cat.sit_last = when
-                cat.sit_waste = None
-            if not merged:
+                sit[0] = min(sit[0], when)
+                sit[1] = max(sit[1], when)
+            else:
+                cat.sits = sorted([*cat.sits, [when, when, None]], key=lambda s: s[0])[-SITS_KEPT:]
                 cat.visits += 1
             self._roll(rec, cat.name, now, count=not merged)
             plausible = not math.isnan(rec.weight) and (
@@ -233,8 +229,8 @@ class Tracker:
                 cat.last_visit = rec.when
                 cat.last_robot = rec.robot
         if final_new and rec.waste != "pending":
-            in_sit = cat.sit_last is not None and cat.sit_start <= when <= cat.sit_last
-            counted_as = cat.sit_waste if in_sit else None
+            sit = next((s for s in cat.sits if s[0] <= when <= s[1]), None)
+            counted_as = sit[2] if sit else None
             # One result per visit. Feces wins: a robot calls an interrupted stop urine.
             if counted_as is None or (counted_as, rec.waste) == ("urine", "feces"):
                 if counted_as:
@@ -243,8 +239,8 @@ class Tracker:
                     cat.poop += 1
                 else:
                     cat.pee += 1
-                if in_sit:
-                    cat.sit_waste = rec.waste
+                if sit:
+                    sit[2] = rec.waste
                 changed = True
         if rec.waste_weight is not None and rec.waste != "pending" and newest:
             attr = "poop_weight" if rec.waste == "feces" else "pee_weight"
@@ -276,9 +272,7 @@ class Tracker:
                     "last_visit": c.last_visit,
                     "last_robot": c.last_robot,
                     "reset_at": c.reset_at,
-                    "sit_start": c.sit_start,
-                    "sit_last": c.sit_last,
-                    "sit_waste": c.sit_waste,
+                    "sits": c.sits,
                     "log": [list(e) for e in c.log],
                 }
                 for slot, c in self.cats.items()
@@ -299,6 +293,11 @@ class Tracker:
         tracker = cls(max_weight_jump)
         for slot, c in data.get("cats", {}).items():
             fields = {**c, "log": [(e[0], e[1]) for e in c.get("log", [])]}
+            # 0.2.2 stored only the visit in progress.
+            old = [fields.pop(k, None) for k in ("sit_start", "sit_last", "sit_waste")]
+            fields["sits"] = [list(s) for s in c.get("sits", [])] or (
+                [old] if old[1] is not None else []
+            )
             tracker.cats[int(slot)] = CatState(slot=int(slot), **fields)
         for robot, keys in data.get("seen", {}).items():
             tracker._seen[robot] = {

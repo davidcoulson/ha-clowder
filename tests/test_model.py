@@ -321,3 +321,39 @@ def test_hopping_between_robots_is_one_visit():
     t2.apply(rec(id=12, time=T0 + 250 + 301, waste="urine", final=1), T0 + 900)
     c2 = t2.cats[4]
     assert (c2.visits, c2.pee, c2.poop) == (2, 1, 1)
+
+
+def test_late_verdicts_find_their_own_visit():
+    # Two stops on one trip, then a new trip before either verdict is in.
+    t = Tracker(3.0)
+    t.apply(rec(id=1, time=T0), T0)
+    t.apply(rec(id=2, time=T0 + 100), T0 + 100)
+    t.apply(rec(id=3, time=T0 + 500), T0 + 500)
+    t.apply(rec(id=1, time=T0, waste="urine", final=1), T0 + 600)
+    t.apply(rec(id=2, time=T0 + 100, waste="feces", final=1), T0 + 610)
+    t.apply(rec(id=3, time=T0 + 500, waste="urine", final=1), T0 + 620)
+    c = t.cats[4]
+    assert (c.visits, c.pee, c.poop) == (2, 1, 1)
+
+
+def test_late_reports_of_an_older_trip_are_one_visit():
+    t = Tracker(3.0)
+    for i, at in enumerate((600, 0, 100)):
+        t.apply(rec(id=i + 1, time=T0 + at, waste="urine", final=1), T0 + 700)
+    c = t.cats[4]
+    assert (c.visits, c.pee, len(c.log)) == (2, 2, 2)
+    assert c.last_visit == T0 + 600
+
+
+def test_visit_in_progress_from_0_2_2_storage_loads():
+    t = Tracker(3.0)
+    t.apply(rec(id=1, time=T0, waste="urine", final=1), T0)
+    data = t.to_dict()
+    cat = data["cats"]["4"]
+    del cat["sits"]
+    cat.update(sit_start=T0, sit_last=T0, sit_waste="urine")
+    t2 = Tracker.from_dict(data, 3.0)
+    t2.apply(rec(id=2, time=T0 + 60, waste="urine", final=1), T0 + 60)
+    assert (t2.cats[4].visits, t2.cats[4].pee) == (1, 1)
+    del cat["sit_start"], cat["sit_last"], cat["sit_waste"]
+    assert Tracker.from_dict(data, 3.0).cats[4].sits == []
