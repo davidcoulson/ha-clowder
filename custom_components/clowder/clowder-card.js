@@ -308,10 +308,12 @@ ha-card[header] .body{padding-top:0}
 .chip{font-size:12px;line-height:16px;padding:4px 10px;border-radius:12px;border:1px solid var(--divider-color)}
 .chip.warn{border-color:var(--warning-color,#ffa600);color:var(--warning-color,#ffa600)}
 .strip{display:flex;flex-wrap:wrap;align-items:center;gap:16px}
-.cats{display:flex;flex-wrap:wrap;gap:10px;flex:3 1 240px;justify-content:space-between}
-.cat{display:flex;flex-direction:column;align-items:center;gap:4px;width:56px}
-.ring{position:relative;width:52px;height:52px}
-.ring span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.cats{display:flex;gap:6px;flex:3 1 240px;justify-content:space-between}
+.cat{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1 1 0;min-width:0;max-width:56px}
+.cat .name{max-width:100%}
+.ring{position:relative;width:100%;max-width:52px;aspect-ratio:1}
+.ring svg{display:block;width:100%;height:100%}
+.ring span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;white-space:nowrap}
 .ring .late{color:var(--error-color,#db4437)}
 .drawers{display:flex;flex-direction:column;gap:8px;flex:1 1 150px}
 .drawers .bar{flex:none;margin-top:3px}
