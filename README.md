@@ -105,6 +105,8 @@ title: Cats
 overdue_hours: 18        # when a cat counts as overdue; default is three of its usual gaps, 12 to 36 hours
 names:                   # a robot is named after its area unless you name it here, by serial
   LR4C000001: Basement left
+robots:                  # show only these robots, by serial; default is all of them
+  - LR4C000001
 ```
 
 A robot is any device with a "waste drawer level" sensor. Readings a robot does not have

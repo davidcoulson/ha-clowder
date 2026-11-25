@@ -116,7 +116,7 @@ function collect(hass, cfg = {}) {
       robots: (perDay && perDay.attributes && perDay.attributes.robots) || {},
     };
   });
-  const robots = d.robots.map((r) => {
+  const robots = d.robots.filter((r) => !cfg.robots || cfg.robots.includes(r.serial)).map((r) => {
     const st = (k) => hass.states[r.ids[k]];
     const sameArea = d.robots.filter((o) => o.area === r.area);
     const label =

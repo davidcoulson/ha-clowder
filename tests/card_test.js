@@ -52,6 +52,7 @@ assert.deepEqual([r2.days, r2.odor, r2.filter, r2.note], [0.5, 0.26, 500, null])
 assert.equal(r3.offline, true);
 assert.deepEqual([r1.visits, r2.visits, r1.share[0].name], [3, 1, "Ash"]);
 assert.equal(card.collect(hass, { names: { LR4C000003: "Eilee" } }).robots[2].label, "Eilee");
+assert.deepEqual(card.collect(hass, { robots: ["LR4C000001", "LR4C000002"] }).robots.map((r) => r.label), ["Basement 1", "Basement 2"]);
 
 assert.equal(card.overdueAfter({ perDay: 4 }, {}), 18);
 assert.equal(card.overdueAfter({ perDay: 0.1 }, {}), 36);
