@@ -26,7 +26,8 @@ async def test_reload_code_replaces_the_modules(hass, entry) -> None:
 
     assert entry.state is ConfigEntryState.LOADED
     assert sys.modules["custom_components.clowder"] is not old["custom_components.clowder"]
-    assert sys.modules["custom_components.clowder.const"] is not old["custom_components.clowder.const"]
+    const = "custom_components.clowder.const"
+    assert sys.modules[const] is not old[const]
     assert hass.services.has_service(DOMAIN, "reload_code")
 
 
