@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest
 from homeassistant.config_entries import ConfigEntries, ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 
+from custom_components import clowder
 from custom_components.clowder.const import DOMAIN
 
 
@@ -49,3 +51,22 @@ async def test_reload_code_reports_failures(hass, entry, target, result) -> None
         await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
     # the action survives a failed reload, so it can be called again once the code is fixed
     assert hass.services.has_service(DOMAIN, "reload_code")
+
+
+async def test_reload_clears_only_marketplaces_clowder_restart_repairs(hass):
+    for domain, issue_id, issue_domain in (
+        ("marketplace", "restart_required_1_tags/2026.11.27.2", "clowder"),
+        ("marketplace", "restart_required_2_tags/2026.11.26.01", "ssh"),
+        ("marketplace", "critical_x", "clowder"),
+        ("clowder", "restart_required_x", "clowder"),
+    ):
+        ir.async_create_issue(
+            hass, domain, issue_id, is_fixable=False, issue_domain=issue_domain,
+            severity=ir.IssueSeverity.WARNING, translation_key="x",
+        )
+    clowder._clear_marketplace_restart(hass)
+    assert set(ir.async_get(hass).issues) == {
+        ("marketplace", "restart_required_2_tags/2026.11.26.01"),
+        ("marketplace", "critical_x"),
+        ("clowder", "restart_required_x"),
+    }
