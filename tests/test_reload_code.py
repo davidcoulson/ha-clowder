@@ -26,7 +26,8 @@ async def test_reload_code_replaces_the_modules(hass, entry) -> None:
 
     assert entry.state is ConfigEntryState.LOADED
     assert sys.modules["custom_components.clowder"] is not old["custom_components.clowder"]
-    assert sys.modules["custom_components.clowder.const"] is not old["custom_components.clowder.const"]
+    const = "custom_components.clowder.const"
+    assert sys.modules[const] is not old[const]
     assert hass.services.has_service(DOMAIN, "reload_code")
 
 
@@ -67,8 +68,13 @@ async def test_reload_clears_only_marketplaces_running_version_repairs(hass, mon
         ("clowder", "restart_required_x/1.2.3", "clowder"),
     ):
         ir.async_create_issue(
-            hass, domain, issue_id, is_fixable=False, issue_domain=issue_domain,
-            severity=ir.IssueSeverity.WARNING, translation_key="x",
+            hass,
+            domain,
+            issue_id,
+            is_fixable=False,
+            issue_domain=issue_domain,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="x",
         )
     mod._clear_marketplace_restart(hass)
     assert set(ir.async_get(hass).issues) == {
@@ -83,3 +89,103 @@ def test_code_version_is_the_manifest_version():
     mod = clowder
     manifest = json.loads((Path(mod.__file__).parent / "manifest.json").read_text())
     assert manifest["version"] == mod._CODE_VERSION
+
+
+def _restart_repairs(hass):
+    for domain, issue_id, issue_domain in (
+        ("marketplace", "restart_required_1_tags/1.2.3", "clowder"),
+        ("marketplace", "restart_required_1_tags/1.2.4", "clowder"),
+        ("marketplace", "restart_required_4_tags/1.2.3", "ssh"),
+        ("marketplace", "critical_x/1.2.3", "clowder"),
+    ):
+        ir.async_create_issue(
+            hass,
+            domain,
+            issue_id,
+            is_fixable=False,
+            issue_domain=issue_domain,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="x",
+        )
+
+
+async def test_same_python_clears_every_restart_repair_for_us(hass, monkeypatch):
+    _restart_repairs(hass)
+    monkeypatch.setattr(clowder, "_RUNNING_CODE", "old")
+    monkeypatch.setattr(clowder, "_code_signature", lambda: "new")
+    await clowder._clear_restart_if_same_code(hass)
+    assert len(ir.async_get(hass).issues) == 4  # changed Python: they stay
+    monkeypatch.setattr(clowder, "_code_signature", lambda: "old")
+    await clowder._clear_restart_if_same_code(hass)
+    assert set(ir.async_get(hass).issues) == {
+        ("marketplace", "restart_required_4_tags/1.2.3"),
+        ("marketplace", "critical_x/1.2.3"),
+    }
+
+
+async def test_a_new_repair_is_cleared_by_the_listener(hass, entry, monkeypatch):
+    monkeypatch.setattr(clowder, "_code_signature", lambda: clowder._RUNNING_CODE)
+    _restart_repairs(hass)
+    await hass.async_block_till_done()
+    assert set(ir.async_get(hass).issues) == {
+        ("marketplace", "restart_required_4_tags/1.2.3"),
+        ("marketplace", "critical_x/1.2.3"),
+    }
+
+
+def test_signature_follows_python_and_requirements(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.py").write_text("x = 1")
+    (tmp_path / "sub" / "b.py").write_text("y = 2")
+    (tmp_path / "manifest.json").write_text('{"requirements": []}')
+    with patch.object(clowder, "__file__", str(tmp_path / "__init__.py")):
+        base = clowder._code_signature()
+        (tmp_path / "manifest.json").write_text('{"requirements": ["foo==1"]}')
+        assert clowder._code_signature() != base
+        (tmp_path / "manifest.json").write_text('{"requirements": []}')
+        assert clowder._code_signature() == base
+        (tmp_path / "sub" / "b.py").write_text("y = 3")
+        assert clowder._code_signature() != base
+
+
+async def test_two_entries_register_one_listener(hass, entry):
+    first = hass.data[DOMAIN]["repair_unsub"]
+    clowder._listen_for_restart_repairs(hass)  # what a second entry's setup does
+    assert hass.data[DOMAIN]["repair_unsub"] is first
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert "repair_unsub" not in hass.data[DOMAIN]
+
+
+def test_signature_is_none_when_the_package_is_unreadable(tmp_path):
+    with patch.object(clowder, "__file__", str(tmp_path / "__init__.py")):  # no manifest.json
+        assert clowder._code_signature() is None
+
+
+async def test_the_listener_stays_while_another_entry_is_loaded(hass, entry):
+    other = type("E", (), {"state": ConfigEntryState.LOADED})()
+    with patch.object(ConfigEntries, "async_entries", return_value=[entry, other]):
+        assert await hass.config_entries.async_unload(entry.entry_id)
+    assert "repair_unsub" in hass.data[DOMAIN]
+
+
+async def test_same_code_clear_moves_the_card_url_to_the_new_version(hass, entry, monkeypatch):
+    from custom_components.clowder import CARD_URL
+
+    monkeypatch.setattr(clowder, "_RUNNING_CODE", "same")
+    monkeypatch.setattr(clowder, "_code_signature", lambda: "same")
+    monkeypatch.setattr(clowder, "_manifest_version", lambda: "9.9.9")
+    with (
+        patch.object(clowder, "remove_extra_js_url") as remove,
+        patch.object(clowder, "add_extra_js_url") as add,
+    ):
+        old = hass.data[DOMAIN]["card_url"]
+        await clowder._clear_restart_if_same_code(hass)
+        remove.assert_called_once_with(hass, old)
+        add.assert_called_once_with(hass, f"{CARD_URL}?v=9.9.9")
+        # Unchanged URL: nothing more.
+        await clowder._clear_restart_if_same_code(hass)
+        remove.assert_called_once()
+
+
+def test_manifest_version_is_read_from_disk():
+    assert clowder._manifest_version() == clowder._CODE_VERSION
