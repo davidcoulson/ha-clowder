@@ -68,8 +68,13 @@ async def test_reload_clears_only_marketplaces_running_version_repairs(hass, mon
         ("clowder", "restart_required_x/1.2.3", "clowder"),
     ):
         ir.async_create_issue(
-            hass, domain, issue_id, is_fixable=False, issue_domain=issue_domain,
-            severity=ir.IssueSeverity.WARNING, translation_key="x",
+            hass,
+            domain,
+            issue_id,
+            is_fixable=False,
+            issue_domain=issue_domain,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="x",
         )
     mod._clear_marketplace_restart(hass)
     assert set(ir.async_get(hass).issues) == {

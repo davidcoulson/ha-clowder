@@ -97,9 +97,7 @@ def _register_reload_code(hass: HomeAssistant) -> None:
         )
         for entry in entries:
             if not await hass.config_entries.async_unload(entry.entry_id):
-                raise HomeAssistantError(
-                    f"{DOMAIN} did not unload; restart Home Assistant instead"
-                )
+                raise HomeAssistantError(f"{DOMAIN} did not unload; restart Home Assistant instead")
         _forget_code(hass, __name__, DOMAIN)
         try:
             await hass.async_add_import_executor_job(_import_code, __name__)
