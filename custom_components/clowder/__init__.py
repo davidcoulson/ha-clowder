@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.frontend import add_extra_js_url, remove_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
@@ -38,7 +38,22 @@ async def _async_register_cards(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), False)])
     # The version in the address makes browsers fetch the new file after an update.
     version = (await async_get_integration(hass, DOMAIN)).version
-    add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+    hass.data[DOMAIN]["card_url"] = f"{CARD_URL}?v={version}"
+    add_extra_js_url(hass, hass.data[DOMAIN]["card_url"])
+
+
+def _manifest_version() -> str:
+    return json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+
+
+async def _async_refresh_card_url(hass: HomeAssistant) -> None:
+    """Point dashboards at the card on disk: its ?v= was built when the card was first loaded."""
+    data = hass.data.get(DOMAIN, {})
+    new = f"{CARD_URL}?v={await hass.async_add_executor_job(_manifest_version)}"
+    if (old := data.get("card_url")) and old != new:
+        remove_extra_js_url(hass, old)
+        add_extra_js_url(hass, new)
+        data["card_url"] = new
 
 
 def _import_code(package: str) -> None:
@@ -82,7 +97,9 @@ def _register_reload_code(hass: HomeAssistant) -> None:
         )
         for entry in entries:
             if not await hass.config_entries.async_unload(entry.entry_id):
-                raise HomeAssistantError(f"{DOMAIN} did not unload; restart Home Assistant instead")
+                raise HomeAssistantError(
+                    f"{DOMAIN} did not unload; restart Home Assistant instead"
+                )
         _forget_code(hass, __name__, DOMAIN)
         try:
             await hass.async_add_import_executor_job(_import_code, __name__)
@@ -146,6 +163,7 @@ async def _clear_restart_if_same_code(hass: HomeAssistant) -> None:
         and await hass.async_add_executor_job(_code_signature) == _RUNNING_CODE
     ):
         _clear_marketplace_restart(hass, same_code=True)
+        await _async_refresh_card_url(hass)
 
 
 def _listen_for_restart_repairs(hass: HomeAssistant) -> None:

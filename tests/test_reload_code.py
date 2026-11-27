@@ -26,9 +26,7 @@ async def test_reload_code_replaces_the_modules(hass, entry) -> None:
 
     assert entry.state is ConfigEntryState.LOADED
     assert sys.modules["custom_components.clowder"] is not old["custom_components.clowder"]
-    assert (
-        sys.modules["custom_components.clowder.const"] is not old["custom_components.clowder.const"]
-    )
+    assert sys.modules["custom_components.clowder.const"] is not old["custom_components.clowder.const"]
     assert hass.services.has_service(DOMAIN, "reload_code")
 
 
@@ -69,13 +67,8 @@ async def test_reload_clears_only_marketplaces_running_version_repairs(hass, mon
         ("clowder", "restart_required_x/1.2.3", "clowder"),
     ):
         ir.async_create_issue(
-            hass,
-            domain,
-            issue_id,
-            is_fixable=False,
-            issue_domain=issue_domain,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="x",
+            hass, domain, issue_id, is_fixable=False, issue_domain=issue_domain,
+            severity=ir.IssueSeverity.WARNING, translation_key="x",
         )
     mod._clear_marketplace_restart(hass)
     assert set(ir.async_get(hass).issues) == {
@@ -167,3 +160,26 @@ async def test_the_listener_stays_while_another_entry_is_loaded(hass, entry):
     with patch.object(ConfigEntries, "async_entries", return_value=[entry, other]):
         assert await hass.config_entries.async_unload(entry.entry_id)
     assert "repair_unsub" in hass.data[DOMAIN]
+
+
+async def test_same_code_clear_moves_the_card_url_to_the_new_version(hass, entry, monkeypatch):
+    from custom_components.clowder import CARD_URL
+
+    monkeypatch.setattr(clowder, "_RUNNING_CODE", "same")
+    monkeypatch.setattr(clowder, "_code_signature", lambda: "same")
+    monkeypatch.setattr(clowder, "_manifest_version", lambda: "9.9.9")
+    with (
+        patch.object(clowder, "remove_extra_js_url") as remove,
+        patch.object(clowder, "add_extra_js_url") as add,
+    ):
+        old = hass.data[DOMAIN]["card_url"]
+        await clowder._clear_restart_if_same_code(hass)
+        remove.assert_called_once_with(hass, old)
+        add.assert_called_once_with(hass, f"{CARD_URL}?v=9.9.9")
+        # Unchanged URL: nothing more.
+        await clowder._clear_restart_if_same_code(hass)
+        remove.assert_called_once()
+
+
+def test_manifest_version_is_read_from_disk():
+    assert clowder._manifest_version() == clowder._CODE_VERSION
