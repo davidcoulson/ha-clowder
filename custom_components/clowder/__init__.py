@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import importlib.util
@@ -133,7 +134,14 @@ def _register_reload_code(hass: HomeAssistant) -> None:
     """
 
     async def _async_roll_back(entries: list[ConfigEntry], previous: list) -> None:
+        platforms = getattr(sys.modules.get(__name__), "PLATFORMS", ())
         for entry in entries:
+            if entry.state is ConfigEntryState.SETUP_ERROR:
+                # HA never unloads a failed setup, but the new code may already have set
+                # platforms up: their entities would outlive the rollback.
+                for platform in platforms:
+                    with contextlib.suppress(ValueError):  # that platform never got set up
+                        await hass.config_entries.async_forward_entry_unload(entry, platform)
             if not await hass.config_entries.async_unload(entry.entry_id):
                 raise HomeAssistantError(
                     f"{DOMAIN}'s new code failed and an entry did not unload; "

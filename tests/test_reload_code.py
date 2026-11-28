@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.config_entries import ConfigEntries, ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components import clowder
@@ -376,3 +377,30 @@ async def test_a_setup_that_fails_after_the_hub_started_stops_the_hub(hass, entr
         await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
     assert entry.state is ConfigEntryState.LOADED
     assert listeners() == 1
+
+
+async def test_a_late_setup_error_leaves_no_new_entities(hass, entry):
+    old = sys.modules["custom_components.clowder"]
+    before = set(hass.states.async_entity_ids())
+    real = importlib.import_module
+
+    def fails_after_platforms(name, *a, **k):
+        module = real(name, *a, **k)
+        if name == "custom_components.clowder" and module is not old:
+
+            async def late(hass):
+                raise RuntimeError("late")
+
+            module._clear_restart_if_same_code = late  # runs after the platforms are set up
+        return module
+
+    with (
+        patch.object(importlib, "import_module", fails_after_platforms),
+        pytest.raises(HomeAssistantError, match="previous code"),
+    ):
+        await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+    assert set(hass.states.async_entity_ids()) == before
+    assert len(hass.states.async_entity_ids()) == len(before)
+    assert len(er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)) >= 1
