@@ -383,6 +383,12 @@ async def test_a_late_setup_error_leaves_no_new_entities(hass, entry):
     old = sys.modules["custom_components.clowder"]
     before = set(hass.states.async_entity_ids())
     real = importlib.import_module
+    real_forward = ConfigEntries.async_forward_entry_unload
+    seen = []
+
+    async def spy(self, entry, platform):
+        seen.append((entry.state, platform))
+        return await real_forward(self, entry, platform)
 
     def fails_after_platforms(name, *a, **k):
         module = real(name, *a, **k)
@@ -396,11 +402,13 @@ async def test_a_late_setup_error_leaves_no_new_entities(hass, entry):
 
     with (
         patch.object(importlib, "import_module", fails_after_platforms),
+        patch.object(ConfigEntries, "async_forward_entry_unload", spy),
         pytest.raises(HomeAssistantError, match="previous code"),
     ):
         await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
     await hass.async_block_till_done()
+    # the failed entry's platforms were unloaded, not left to outlive the rollback
+    assert {p for state, p in seen if state is ConfigEntryState.SETUP_ERROR} == set(old.PLATFORMS)
     assert entry.state is ConfigEntryState.LOADED
     assert set(hass.states.async_entity_ids()) == before
-    assert len(hass.states.async_entity_ids()) == len(before)
     assert len(er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)) >= 1
