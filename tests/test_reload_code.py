@@ -6,7 +6,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntries, ConfigEntryState
@@ -189,3 +189,86 @@ async def test_same_code_clear_moves_the_card_url_to_the_new_version(hass, entry
 
 def test_manifest_version_is_read_from_disk():
     assert clowder._manifest_version() == clowder._CODE_VERSION
+
+
+async def test_a_syntax_error_unloads_nothing(hass, entry, tmp_path):
+    old = sys.modules["custom_components.clowder"]
+    (tmp_path / "const.py").write_text("X = (\n")
+    with (
+        # the running module: earlier reload tests left the imported name stale
+        patch.object(old, "__file__", str(tmp_path / "__init__.py")),
+        pytest.raises(HomeAssistantError, match=r"const\.py line 1.*unchanged"),
+    ):
+        await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
+    assert entry.state is ConfigEntryState.LOADED
+    assert sys.modules["custom_components.clowder"] is old
+
+
+async def test_an_import_error_puts_the_previous_code_back(hass, entry):
+    old = sys.modules["custom_components.clowder"]
+    real = importlib.import_module
+
+    def broken(name, *a, **k):
+        if name == "custom_components.clowder" and name not in sys.modules:
+            raise ImportError("no_such_name")
+        return real(name, *a, **k)
+
+    with (
+        patch.object(importlib, "import_module", broken),
+        pytest.raises(HomeAssistantError, match="previous code is running again"),
+    ):
+        await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
+    assert entry.state is ConfigEntryState.LOADED
+    assert sys.modules["custom_components.clowder"] is old
+    assert hass.bus.async_listeners()["repairs_issue_registry_updated"] == 1
+    # the action works again once the code is fixed
+    await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
+    assert entry.state is ConfigEntryState.LOADED
+    assert sys.modules["custom_components.clowder"] is not old
+
+
+def _broken_import(old):
+    """An import_module whose fresh copy of the package has a hub that fails to start."""
+    real = importlib.import_module
+
+    def broken(name, *a, **k):
+        module = real(name, *a, **k)
+        if name == "custom_components.clowder" and module is not old:
+            sys.modules["custom_components.clowder.hub"].ClowderHub.async_start = _boom
+        return module
+
+    return broken
+
+
+async def _boom(self):
+    raise RuntimeError("broken")
+
+
+async def test_a_setup_error_puts_the_previous_code_back(hass, entry):
+    old = sys.modules["custom_components.clowder"]
+    old_hub = sys.modules["custom_components.clowder.hub"]
+    old.async_setup = setup = AsyncMock(return_value=True)  # the old async_setup runs again
+    try:
+        with (
+            patch.object(importlib, "import_module", _broken_import(old)),
+            pytest.raises(HomeAssistantError, match="did not set up.*previous code"),
+        ):
+            await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)
+    finally:
+        del old.async_setup
+    setup.assert_awaited_once_with(hass, {})
+    assert entry.state is ConfigEntryState.LOADED
+    assert sys.modules["custom_components.clowder"] is old
+    assert sys.modules["custom_components.clowder.hub"] is old_hub
+    assert hass.bus.async_listeners()["repairs_issue_registry_updated"] == 1
+
+
+async def test_a_failed_rollback_says_to_restart(hass, entry):
+    old = sys.modules["custom_components.clowder"]
+    old_hub = sys.modules["custom_components.clowder.hub"]
+    with (
+        patch.object(old_hub.ClowderHub, "async_start", _boom),  # the old code breaks too
+        patch.object(importlib, "import_module", _broken_import(old)),
+        pytest.raises(HomeAssistantError, match="restart Home Assistant"),
+    ):
+        await hass.services.async_call(DOMAIN, "reload_code", {}, blocking=True)

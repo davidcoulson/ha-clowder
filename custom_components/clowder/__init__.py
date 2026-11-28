@@ -70,27 +70,84 @@ def _import_code(package: str) -> None:
             importlib.import_module(f"{package}.{name}")
 
 
-def _forget_code(hass: HomeAssistant, package: str, domain: str) -> None:
+def _syntax_error() -> str | None:
+    """The first .py file that does not compile, as "file line N: message" (blocking)."""
+    root = Path(__file__).parent
+    for path in sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts):
+        try:
+            compile(path.read_bytes(), str(path), "exec")
+        except (SyntaxError, ValueError) as err:
+            return f"{path.relative_to(root)} line {getattr(err, 'lineno', None)}: " + str(
+                getattr(err, "msg", err)
+            )
+    return None
+
+
+def _forget_code(hass: HomeAssistant, package: str, domain: str) -> list[tuple[dict, str, object]]:
     """Drop a package's modules so the next setup imports them from disk again.
 
     Home Assistant keeps its own copy of each imported integration module
     (loader.py: hass.data["components"], keyed "<domain>" and
     "<domain>.<platform>") next to Python's sys.modules; both have to go.
+    Returns what was dropped, for _restore_code.
     """
+    dropped = []
     for cache, root in (
         (sys.modules, package),
         (hass.data.get("components", {}), domain),
         (hass.data.get("missing_platforms", {}), domain),
     ):
         for name in [n for n in cache if n == root or n.startswith(root + ".")]:
-            del cache[name]
+            dropped.append((cache, name, cache.pop(name)))
     importlib.invalidate_caches()  # or a file added since the last import may not be found
+    return dropped
+
+
+def _restore_code(
+    hass: HomeAssistant, package: str, domain: str, dropped: list[tuple[dict, str, object]]
+) -> None:
+    """Swap the new modules out and the ones _forget_code dropped back in."""
+    _forget_code(hass, package, domain)
+    for cache, name, module in dropped:
+        cache[name] = module
+
+
+def _stop_listening(hass: HomeAssistant) -> None:
+    if unsub := hass.data.get(DOMAIN, {}).pop("repair_unsub", None):
+        unsub()
+
+
+async def _async_setup_component(hass: HomeAssistant, package: str) -> None:
+    if setup := getattr(sys.modules[package], "async_setup", None):
+        await setup(hass, {})
 
 
 def _register_reload_code(hass: HomeAssistant) -> None:
-    """Dev: clowder.reload_code loads the Python files from disk without a restart."""
+    """Dev: clowder.reload_code loads the Python files from disk without a restart.
+
+    A syntax error is found before anything is unloaded; an error while importing or setting
+    up puts the previous code back (in memory only: a module imported lazily later reads the
+    new file).
+    """
+
+    async def _async_roll_back(entries: list[ConfigEntry], previous: list) -> None:
+        for entry in entries:
+            await hass.config_entries.async_unload(entry.entry_id)
+        _stop_listening(hass)
+        _restore_code(hass, __name__, DOMAIN, previous)
+        await _async_setup_component(hass, __name__)
+        failed = [e.title for e in entries if not await hass.config_entries.async_setup(e.entry_id)]
+        if failed:
+            raise HomeAssistantError(
+                f"{DOMAIN}'s new code failed, and the previous code did not set up {failed} "
+                "again either; restart Home Assistant"
+            )
 
     async def _reload_code(call: ServiceCall) -> None:
+        if problem := await hass.async_add_executor_job(_syntax_error):
+            raise HomeAssistantError(
+                f"{DOMAIN} was not reloaded: {problem}. The running code is unchanged"
+            )
         # Disabled and ignored entries are never set up, so they are not ours to reload.
         entries = hass.config_entries.async_entries(
             DOMAIN, include_ignore=False, include_disabled=False
@@ -98,18 +155,29 @@ def _register_reload_code(hass: HomeAssistant) -> None:
         for entry in entries:
             if not await hass.config_entries.async_unload(entry.entry_id):
                 raise HomeAssistantError(f"{DOMAIN} did not unload; restart Home Assistant instead")
-        _forget_code(hass, __name__, DOMAIN)
+        _stop_listening(hass)  # in case async_unload_entry did not
+        previous = _forget_code(hass, __name__, DOMAIN)
         try:
             await hass.async_add_import_executor_job(_import_code, __name__)
+            await _async_setup_component(hass, __name__)
         except Exception as err:
+            await _async_roll_back(entries, previous)
             # This handler stays registered, so the action works again once the code is fixed.
             raise HomeAssistantError(
-                f"{DOMAIN} is unloaded: the new code did not load ({err}). "
-                f"Fix it and call {DOMAIN}.reload_code again"
+                f"{DOMAIN}'s new code did not load ({err}), so the previous code is running "
+                f"again. Fix it and call {DOMAIN}.reload_code again"
             ) from err
-        failed = [e.title for e in entries if not await hass.config_entries.async_setup(e.entry_id)]
-        if failed:
-            raise HomeAssistantError(f"{DOMAIN} did not set up again for {failed}; see the log")
+        for entry in entries:
+            await hass.config_entries.async_setup(entry.entry_id)
+        # A setup error is the new code's fault; a retry (the device is offline) is not.
+        if broken := [e.title for e in entries if e.state is ConfigEntryState.SETUP_ERROR]:
+            await _async_roll_back(entries, previous)
+            raise HomeAssistantError(
+                f"{DOMAIN}'s new code did not set up {broken}, so the previous code is running "
+                "again; see the log"
+            )
+        if waiting := [e.title for e in entries if e.state is not ConfigEntryState.LOADED]:
+            raise HomeAssistantError(f"{DOMAIN} did not set up again for {waiting}; see the log")
 
     async_register_admin_service(hass, DOMAIN, "reload_code", _reload_code)
 
@@ -207,8 +275,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ClowderConfigEntry) -> 
         if not any(
             e is not entry and e.state is ConfigEntryState.LOADED
             for e in hass.config_entries.async_entries(DOMAIN)
-        ) and (unsub := hass.data.get(DOMAIN, {}).pop("repair_unsub", None)):
-            unsub()
+        ):
+            _stop_listening(hass)
     return unloaded
 
 
