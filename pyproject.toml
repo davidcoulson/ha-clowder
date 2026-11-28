@@ -2,7 +2,8 @@
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "--cov=custom_components.clowder --cov-report=term-missing --cov-fail-under=100"
+# From 2026.12 Home Assistant aliases httpx on import; respx's plugin would import it first.
+addopts = "-p no:respx --cov=custom_components.clowder --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
 branch = true

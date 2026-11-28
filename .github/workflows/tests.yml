@@ -5,15 +5,32 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - run: pip install -r requirements_test.txt ruff
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: pytest
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx ruff check .
+      - run: uvx ruff format --check .
       - run: node tests/card_test.js
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Home Assistant 2025.6 (oldest tested)
+            python: "3.13"
+            requirements: requirements_test_oldest.txt
+          - name: Home Assistant 2026.11 (newest)
+            python: "3.14"
+            requirements: requirements_test.txt
+          - name: Home Assistant 2026.12 (beta)
+            python: "3.14"
+            requirements: requirements_test_beta.txt
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx --python ${{ matrix.python }} --with-requirements ${{ matrix.requirements }} pytest

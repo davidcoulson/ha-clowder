@@ -2,13 +2,11 @@
 
 from datetime import timedelta
 
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.clowder.const import DOMAIN, EVENT_HELLO, EVENT_VISIT
+from custom_components.clowder.const import EVENT_HELLO, EVENT_VISIT
 
-from .conftest import HELLO, ev
+from .conftest import HELLO, async_fire_time_changed, cat_device, ev
 
 
 async def fire(hass, event, data):
@@ -24,13 +22,12 @@ def state(hass, entity_id):
 
 async def test_hello_creates_six_devices_with_twelve_entities(hass, entry):
     await fire(hass, EVENT_HELLO, HELLO)
-    devices = dr.async_get(hass)
     entities = er.async_get(hass)
     for slot, name in enumerate(["Ash", "Bean", "Coco", "Luna", "Milo", "Nori"], 1):
-        device = devices.async_get_device({(DOMAIN, f"cat_{slot}")})
+        device = cat_device(hass, entry, f"cat_{slot}")
         assert device is not None and device.name == name
         assert len(er.async_entries_for_device(entities, device.id)) == 12
-    hub_device = devices.async_get_device({(DOMAIN, "hub")})
+    hub_device = cat_device(hass, entry, "hub")
     assert len(er.async_entries_for_device(entities, hub_device.id)) == 5
     assert state(hass, "sensor.ash_visits") == "0"
     assert state(hass, "sensor.ash_weight") == "unknown"
@@ -103,13 +100,13 @@ async def test_unidentified_fires_event_entity_once(hass, entry, freezer):
     freezer.tick(60)
     await fire(hass, EVENT_VISIT, ev(slot=0, name="Unknown", final=1, waste="urine"))
     assert hass.states.get("event.clowder_unidentified_visit").state == first.state
-    assert dr.async_get(hass).async_get_device({(DOMAIN, "cat_0")}) is None
+    assert cat_device(hass, entry, "cat_0") is None
 
 
 async def test_cat_first_seen_by_visit_gets_device(hass, entry):
     await fire(hass, EVENT_VISIT, ev(slot=2, name="Bean"))
     assert state(hass, "sensor.bean_visits") == "1"
-    assert dr.async_get(hass).async_get_device({(DOMAIN, "cat_2")}).name == "Bean"
+    assert cat_device(hass, entry, "cat_2").name == "Bean"
 
 
 async def test_entities_restored_after_reload(hass, entry):
