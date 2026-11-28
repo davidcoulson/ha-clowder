@@ -4,11 +4,10 @@ from unittest.mock import AsyncMock
 
 from homeassistant.core import CoreState
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
 from custom_components.clowder.const import DOMAIN, EVENT_HELLO, EVENT_VISIT
 
-from .conftest import ACK, HELLO, ev
+from .conftest import ACK, HELLO, MockConfigEntry, async_mock_service, ev
 
 
 async def fire(hass, event, data):

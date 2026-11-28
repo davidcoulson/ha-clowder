@@ -180,9 +180,11 @@ Robots also fire `esphome.clowder_hello` when they connect (`node`, `robot`,
 <summary>Development</summary>
 
 ```bash
-pip install -r requirements_test.txt ruff
-pytest
-ruff check . && ruff format --check .
+uvx --python 3.14 --with-requirements requirements_test.txt pytest
+uvx ruff check . && uvx ruff format --check .
 ```
+
+`requirements_test_beta.txt` tests the current Home Assistant beta, and
+`--python 3.13 --with-requirements requirements_test_oldest.txt` tests 2025.6.
 
 </details>

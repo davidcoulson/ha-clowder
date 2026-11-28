@@ -3,7 +3,21 @@
 from __future__ import annotations
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers import device_registry as dr
+
+# The tests import these from here, so they run on either harness.
+try:  # Home Assistant's own harness, from 2026.11
+    from pytest_homeassistant.common import (  # noqa: F401
+        MockConfigEntry,
+        async_fire_time_changed,
+        async_mock_service,
+    )
+except ImportError:  # the community one, for older versions
+    from pytest_homeassistant_custom_component.common import (  # noqa: F401
+        MockConfigEntry,
+        async_fire_time_changed,
+        async_mock_service,
+    )
 
 from custom_components.clowder.const import DOMAIN
 
@@ -14,6 +28,12 @@ HELLO = {
     "robot": "LR4C000001",
     "cats": "1=Ash,2=Bean,3=Coco,4=Luna,5=Milo,6=Nori",
 }
+
+
+def cat_device(hass, entry, identifier):
+    """The entry's device with this identifier (async_get_device is deprecated from 2026.11)."""
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    return next((d for d in devices if (DOMAIN, identifier) in d.identifiers), None)
 
 
 def ev(**kw):
