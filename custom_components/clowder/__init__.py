@@ -110,6 +110,8 @@ def _restore_code(
     _forget_code(hass, package, domain)
     for cache, name, module in dropped:
         cache[name] = module
+    # so that "from custom_components import clowder" gets the restored module
+    setattr(sys.modules[package.rpartition(".")[0]], domain, sys.modules[package])
 
 
 def _stop_listening(hass: HomeAssistant) -> None:
@@ -118,8 +120,8 @@ def _stop_listening(hass: HomeAssistant) -> None:
 
 
 async def _async_setup_component(hass: HomeAssistant, package: str) -> None:
-    if setup := getattr(sys.modules[package], "async_setup", None):
-        await setup(hass, {})
+    if (setup := getattr(sys.modules[package], "async_setup", None)) and not await setup(hass, {}):
+        raise HomeAssistantError(f"{DOMAIN}'s async_setup returned False")
 
 
 def _register_reload_code(hass: HomeAssistant) -> None:
@@ -132,18 +134,34 @@ def _register_reload_code(hass: HomeAssistant) -> None:
 
     async def _async_roll_back(entries: list[ConfigEntry], previous: list) -> None:
         for entry in entries:
-            await hass.config_entries.async_unload(entry.entry_id)
+            if not await hass.config_entries.async_unload(entry.entry_id):
+                raise HomeAssistantError(
+                    f"{DOMAIN}'s new code failed and an entry did not unload; "
+                    "restart Home Assistant"
+                )
         _stop_listening(hass)
         _restore_code(hass, __name__, DOMAIN, previous)
         await _async_setup_component(hass, __name__)
-        failed = [e.title for e in entries if not await hass.config_entries.async_setup(e.entry_id)]
-        if failed:
+        for entry in entries:
+            await hass.config_entries.async_setup(entry.entry_id)
+        ok = (ConfigEntryState.LOADED, ConfigEntryState.SETUP_RETRY)  # a retry is not a failure
+        if failed := [e.title for e in entries if e.state not in ok]:
             raise HomeAssistantError(
                 f"{DOMAIN}'s new code failed, and the previous code did not set up {failed} "
                 "again either; restart Home Assistant"
             )
 
     async def _reload_code(call: ServiceCall) -> None:
+        # A plain hass.data key: a module-level flag would be lost in the module swap.
+        if hass.data.get("clowder_reloading"):
+            raise HomeAssistantError("Clowder is already reloading its code")
+        hass.data["clowder_reloading"] = True
+        try:
+            await _do_reload()
+        finally:
+            hass.data.pop("clowder_reloading", None)
+
+    async def _do_reload() -> None:
         if problem := await hass.async_add_executor_job(_syntax_error):
             raise HomeAssistantError(
                 f"{DOMAIN} was not reloaded: {problem}. The running code is unchanged"
@@ -257,12 +275,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ClowderConfigEntry) -> b
         _RUNNING_CODE = await hass.async_add_executor_job(_code_signature)
     hub = ClowderHub(hass, entry)
     await hub.async_start()
-    entry.runtime_data = hub
-    entry.async_on_unload(entry.add_update_listener(_async_reload))
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _listen_for_restart_repairs(hass)  # before the sweep: a repair raised in between is caught
-    _clear_marketplace_restart(hass)
-    await _clear_restart_if_same_code(hass)
+    try:
+        entry.runtime_data = hub
+        entry.async_on_unload(entry.add_update_listener(_async_reload))
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        _listen_for_restart_repairs(hass)  # before the sweep: a repair raised in between is caught
+        _clear_marketplace_restart(hass)
+        await _clear_restart_if_same_code(hass)
+    except BaseException:
+        await hub.async_stop()  # HA does not call the unload hook for a failed setup
+        raise
     return True
 
 
